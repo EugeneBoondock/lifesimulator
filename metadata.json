@@ -1,0 +1,5 @@
+{
+  "name": "Aetheria: AI Life Simulator",
+  "description": "A web-based 3D life simulation engine where NPCs possess emergent free will, driven by the Gemini API. Features a real-time game loop, dynamic needs, and improvisational behavior.",
+  "requestFramePermissions": []
+}
