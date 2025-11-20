@@ -1,11 +1,13 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { INITIAL_AGENTS, TICK_RATE_MS, DAY_LENGTH_TICKS, WORLD_SIZE } from './constants';
-import { GameState, Agent, AgentState, AgentDecision, Building } from './types';
+import { INITIAL_AGENTS, INITIAL_FLORA, INITIAL_FAUNA, TICK_RATE_MS, DAY_LENGTH_TICKS, WORLD_SIZE } from './constants';
+import { GameState, Agent, AgentState, AgentDecision, Building, Flora, Fauna } from './types';
 import World3D from './components/World3D';
 import UIOverlay from './components/UIOverlay';
 import { decideAgentAction } from './services/geminiService';
+import { audioManager } from './services/audioService';
 
-// Safe ID generator for environments where crypto.randomUUID might fail
+// Safe ID generator
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 function App() {
@@ -13,18 +15,19 @@ function App() {
   const [gameState, setGameState] = useState<GameState>({
     agents: INITIAL_AGENTS,
     buildings: [],
+    flora: INITIAL_FLORA,
+    fauna: INITIAL_FAUNA,
+    knowledge: {},
     time: 0,
-    dayTime: 12, // Starts at noon
-    logs: [{ id: 'init', timestamp: 0, type: 'SYSTEM', message: 'Engine initialized. Waiting for AI signals...' }],
+    dayTime: 12, 
+    logs: [{ id: 'init', timestamp: 0, type: 'SYSTEM', message: 'Civilization started. Explore the unknown.' }],
     paused: false,
     selectedAgentId: null
   });
 
-  // Refs for mutable state in interval without re-renders
   const stateRef = useRef<GameState>(gameState);
   const processingAgents = useRef<Set<string>>(new Set()); 
 
-  // Sync ref
   useEffect(() => {
     stateRef.current = gameState;
   }, [gameState]);
@@ -45,63 +48,135 @@ function App() {
       agents: prev.agents.map(a => a.id === agentId ? { ...a, state: AgentState.THINKING } : a)
     }));
 
-    // Call Gemini
+    // 1. GET AI DECISION
     const decision: AgentDecision = await decideAgentAction(currentAgent, stateRef.current);
 
-    // Apply Decision
+    // 2. APPLY DECISION LOGIC
     setGameState(prev => {
       const logs = [...prev.logs];
-      logs.push({
-        id: generateId(),
-        timestamp: prev.time,
-        type: 'AGENT',
-        message: `${currentAgent.name}: ${decision.thoughtProcess}`
-      });
+      let agents = [...prev.agents];
+      const buildings = [...prev.buildings];
+      let flora = [...prev.flora];
+      let knowledge = { ...prev.knowledge };
+      
+      const myIndex = agents.findIndex(a => a.id === agentId);
+      if (myIndex === -1) return prev;
 
-      if (decision.action === 'TALK' && decision.dialogue) {
-         logs.push({
-          id: generateId(),
-          timestamp: prev.time,
-          type: 'DIALOGUE',
-          message: `"${decision.dialogue}"`
-        });
+      let me = { ...agents[myIndex] };
+      let newState = AgentState.IDLE;
+      let newTarget = null;
+      let chatBubble = undefined;
+      
+      // --- LOGIC HANDLERS ---
+
+      if (decision.action === 'MOVE' && decision.targetLocation) {
+        newState = AgentState.MOVING;
+        newTarget = { 
+          x: Math.max(-WORLD_SIZE/2 + 1, Math.min(WORLD_SIZE/2 - 1, decision.targetLocation.x)), 
+          y: 0, 
+          z: Math.max(-WORLD_SIZE/2 + 1, Math.min(WORLD_SIZE/2 - 1, decision.targetLocation.z)) 
+        };
+      } 
+      else if (decision.action === 'INSPECT' && decision.targetId) {
+        const targetFlora = flora.find(f => f.id === decision.targetId);
+        if (targetFlora) {
+           newState = AgentState.WORKING;
+           const known = knowledge[targetFlora.type];
+           
+           if (!known && decision.namingProposal) {
+              // DISCOVERY!
+              knowledge[targetFlora.type] = {
+                customName: decision.namingProposal,
+                discoveredBy: me.name,
+                description: "A new discovery."
+              };
+              logs.push({
+                id: generateId(),
+                timestamp: prev.time,
+                type: 'DISCOVERY',
+                message: `${me.name} discovered ${targetFlora.type} and named it "${decision.namingProposal}"!`
+              });
+              chatBubble = `I name this... ${decision.namingProposal}!`;
+           } else if (known) {
+              chatBubble = `Ah, ${known.customName}.`;
+           }
+        }
       }
+      else if (decision.action === 'HARVEST' && decision.targetId) {
+        const targetFloraIndex = flora.findIndex(f => f.id === decision.targetId);
+        if (targetFloraIndex !== -1) {
+          const target = flora[targetFloraIndex];
+          const dist = Math.sqrt(Math.pow(target.position.x - me.position.x, 2) + Math.pow(target.position.z - me.position.z, 2));
+          
+          if (dist < 3.0) {
+            // HARVEST SUCCESS
+            newState = AgentState.WORKING;
+            audioManager.playBuild(); // Crunch sound reuse
+            
+            if (target.isPoisonous) {
+               me.needs.health = Math.max(0, me.needs.health - 30);
+               me.needs.hunger = Math.min(100, me.needs.hunger + 5); // Still fills belly
+               logs.push({ id: generateId(), timestamp: prev.time, type: 'AGENT', message: `${me.name} ate poison!` });
+               chatBubble = "Ugh... stomach hurts...";
+            } else if (target.isEdible) {
+               me.needs.hunger = Math.min(100, me.needs.hunger + target.nutritionValue);
+               me.needs.health = Math.min(100, me.needs.health + 5);
+               chatBubble = "Yummy!";
+            } else {
+               chatBubble = "Inedible.";
+            }
+            
+            // Remove plant (or set it to regrow later - strictly remove for now to keep simple)
+            flora.splice(targetFloraIndex, 1);
+          } else {
+             // Move to it
+             newState = AgentState.MOVING;
+             newTarget = target.position;
+             chatBubble = "Going to harvest...";
+          }
+        }
+      }
+      else if (decision.action === 'TALK' && decision.targetId) {
+         // (Existing Talk Logic simplified for brevity in this update)
+         const target = agents.find(a => a.id === decision.targetId);
+         if (target) {
+            newState = AgentState.SOCIALIZING;
+            chatBubble = decision.dialogue;
+            audioManager.playChat(1.0);
+            logs.push({ id: generateId(), timestamp: prev.time, type: 'DIALOGUE', message: `"${decision.dialogue}"` });
+            me.relationships[target.id] = (me.relationships[target.id] || 50) + 2;
+            me.needs.social += 10;
+         }
+      }
+      else if (decision.action === 'BUILD') {
+         newState = AgentState.WORKING;
+         const type = 'HOUSE';
+         buildings.push({
+            id: generateId(),
+            position: { x: me.position.x + Math.sin(me.rotation)*2, y: 0, z: me.position.z + Math.cos(me.rotation)*2 },
+            ownerId: me.id,
+            type: type,
+            scale: 1
+         });
+         audioManager.playBuild();
+         logs.push({ id: generateId(), timestamp: prev.time, type: 'SYSTEM', message: `${me.name} built a House.` });
+      }
+      else if (decision.action === 'SLEEP') newState = AgentState.SLEEPING;
+      
+      me.state = newState;
+      me.targetPosition = newTarget;
+      if(chatBubble) me.chatBubble = chatBubble;
+      me.currentActionLabel = decision.thoughtProcess;
+
+      agents[myIndex] = me;
 
       return {
         ...prev,
         logs: logs.slice(-50),
-        agents: prev.agents.map(a => {
-          if (a.id !== agentId) return a;
-
-          let newState = AgentState.IDLE;
-          let newTarget = null;
-          let chatBubble = undefined;
-
-          // Handle Actions
-          if (decision.action === 'MOVE' && decision.targetLocation) {
-            newState = AgentState.MOVING;
-            newTarget = { 
-              x: Math.max(-WORLD_SIZE/2, Math.min(WORLD_SIZE/2, decision.targetLocation.x)), 
-              y: 0, 
-              z: Math.max(-WORLD_SIZE/2, Math.min(WORLD_SIZE/2, decision.targetLocation.z)) 
-            };
-          } else if (decision.action === 'TALK') {
-            newState = AgentState.SOCIALIZING;
-            chatBubble = decision.dialogue;
-          } else if (decision.action === 'SLEEP') {
-            newState = AgentState.SLEEPING;
-          } else if (decision.action === 'WORK') {
-            newState = AgentState.WORKING;
-          }
-
-          return {
-            ...a,
-            state: newState,
-            targetPosition: newTarget,
-            currentActionLabel: decision.thoughtProcess,
-            chatBubble: chatBubble
-          };
-        })
+        agents,
+        buildings,
+        flora,
+        knowledge
       };
     });
 
@@ -117,96 +192,84 @@ function App() {
       setGameState(prev => {
         const nextTime = prev.time + 1;
         const nextDayTime = (prev.dayTime + (24 / DAY_LENGTH_TICKS)) % 24;
-        const newBuildings = [...prev.buildings];
+        
+        // Update Fauna (Random Movement)
+        const nextFauna = prev.fauna.map(animal => {
+           if (Math.random() < 0.02) {
+              // Pick random destination
+              return { 
+                 ...animal, 
+                 state: 'MOVING', 
+                 targetPosition: { 
+                    x: (Math.random() - 0.5) * WORLD_SIZE, 
+                    y: 0, 
+                    z: (Math.random() - 0.5) * WORLD_SIZE 
+                 } 
+              } as Fauna;
+           }
+           
+           if (animal.state === 'MOVING' && animal.targetPosition) {
+              const dx = animal.targetPosition.x - animal.position.x;
+              const dz = animal.targetPosition.z - animal.position.z;
+              const dist = Math.sqrt(dx*dx + dz*dz);
+              const speed = 0.05;
+              
+              if (dist < 0.1) return { ...animal, state: 'IDLE', targetPosition: null } as Fauna;
+              
+              const rot = Math.atan2(dx, dz);
+              return {
+                 ...animal,
+                 position: { x: animal.position.x + Math.sin(rot)*speed, y: 0, z: animal.position.z + Math.cos(rot)*speed },
+                 rotation: rot
+              } as Fauna;
+           }
+           return animal;
+        });
 
-        // Update Agents (Movement & Needs Decay)
+        // Update Agents
         const nextAgents = prev.agents.map(agent => {
-          let { position, targetPosition, needs, state, chatBubble, rotation } = agent;
-          
-          // Initialize newNeeds based on current needs
+          let { position, targetPosition, needs, state, rotation } = agent;
           let newNeeds = { ...needs };
 
-          // Movement Logic with Rotation
           if (state === AgentState.MOVING && targetPosition) {
             const dx = targetPosition.x - position.x;
             const dz = targetPosition.z - position.z;
             const dist = Math.sqrt(dx*dx + dz*dz);
-            const speed = 0.15; // Slower, more realistic speed
-
-            // Calculate facing rotation
+            const speed = 0.10; 
             const targetRotation = Math.atan2(dx, dz);
-            // Simple lerp rotation
-            let diff = targetRotation - rotation;
-            while (diff > Math.PI) diff -= Math.PI * 2;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            rotation += diff * 0.2;
+            rotation = targetRotation;
 
             if (dist < speed) {
               position = targetPosition;
               targetPosition = null;
-              state = AgentState.IDLE;
+              state = AgentState.IDLE; 
             } else {
-              position = {
-                x: position.x + Math.sin(rotation) * speed,
-                y: 0, 
-                z: position.z + Math.cos(rotation) * speed
-              };
+              position = { x: position.x + Math.sin(rotation) * speed, y: 0, z: position.z + Math.cos(rotation) * speed };
+              if (nextTime % 8 === 0) audioManager.playStep();
             }
           }
 
-          // Work Logic: Differentiate between Foraging and Building
-          if (state === AgentState.WORKING) {
-            // If hungry, they are Foraging/Eating
-            if (needs.hunger < 50) {
-                newNeeds.hunger = Math.min(100, newNeeds.hunger + 5); // Eat
-            } else {
-                // If not hungry, they are building/working
-                newNeeds.hunger = Math.max(0, newNeeds.hunger - 0.5); // Work makes you hungry
-                newNeeds.energy = Math.max(0, newNeeds.energy - 0.5); // Work tires you out
-                
-                // Spawn buildings randomly if working
-                if (Math.random() < 0.02) { 
-                  const offsetX = Math.sin(rotation) * 1.5;
-                  const offsetZ = Math.cos(rotation) * 1.5;
-                  newBuildings.push({
-                    id: generateId(),
-                    position: { x: position.x + offsetX, y: 0, z: position.z + offsetZ },
-                    ownerId: agent.id,
-                    type: agent.personality.bio.includes("gardener") ? 'PLANT' : 'CRATE',
-                    scale: 0.5 + Math.random() * 0.5
-                  });
-                }
-            }
-          } else {
-            // Idle hunger decay
-            newNeeds.hunger = Math.max(0, newNeeds.hunger - 0.1);
-          }
-
-          // Needs Decay / Regen
-          if (state === AgentState.SLEEPING) {
-             newNeeds.energy = Math.min(100, newNeeds.energy + 5);
-          } else {
-             newNeeds.energy = Math.max(0, newNeeds.energy - 0.1);
-          }
+          // Stats decay
+          if (state === AgentState.WORKING) { newNeeds.energy -= 0.05; newNeeds.hunger -= 0.05; }
+          else if (state === AgentState.SLEEPING) { newNeeds.energy += 0.5; }
+          else { newNeeds.energy -= 0.01; newNeeds.hunger -= 0.02; newNeeds.social -= 0.02; }
           
-          if (state === AgentState.SOCIALIZING) {
-             newNeeds.social = Math.min(100, newNeeds.social + 5);
-          } else {
-             newNeeds.social = Math.max(0, newNeeds.social - 0.15);
-          }
-          
-          if (chatBubble && Math.random() > 0.8) {
-            chatBubble = undefined;
-          }
+          // Health Regen/Decay
+          if (newNeeds.hunger === 0) newNeeds.health -= 0.1;
+          if (newNeeds.hunger > 80) newNeeds.health += 0.05;
 
-          return { ...agent, position, targetPosition, state, needs: newNeeds, chatBubble, rotation };
+          newNeeds.energy = Math.max(0, Math.min(100, newNeeds.energy));
+          newNeeds.hunger = Math.max(0, Math.min(100, newNeeds.hunger));
+          newNeeds.health = Math.max(0, Math.min(100, newNeeds.health));
+
+          return { ...agent, position, targetPosition, state, needs: newNeeds, rotation };
         });
 
-        // AI Trigger
-        if (nextTime % 10 === 0) {
+        // Trigger AI
+        if (nextTime % 60 === 0) {
            nextAgents.forEach(a => {
-             if (a.state === AgentState.IDLE || a.state === AgentState.SOCIALIZING || a.state === AgentState.SLEEPING) {
-                if (Math.random() > 0.3) processAgentAI(a.id);
+             if (a.state !== AgentState.MOVING && a.state !== AgentState.THINKING) {
+                if (Math.random() > 0.2) processAgentAI(a.id);
              }
            });
         }
@@ -216,22 +279,21 @@ function App() {
           time: nextTime,
           dayTime: nextDayTime,
           agents: nextAgents,
-          buildings: newBuildings
+          fauna: nextFauna
         };
       });
-
-    }, TICK_RATE_MS / 10); // Faster smooth simulation
+    }, TICK_RATE_MS / 10);
 
     return () => clearInterval(interval);
   }, [processAgentAI]);
 
-
-  // ---------------- RENDER ----------------
   return (
-    <div className="w-screen h-screen relative overflow-hidden">
+    <div className="w-screen h-screen relative overflow-hidden" onClick={() => audioManager.playStep()}>
       <World3D 
         agents={gameState.agents} 
         buildings={gameState.buildings}
+        flora={gameState.flora}
+        fauna={gameState.fauna}
         onSelectAgent={(id) => setGameState(prev => ({ ...prev, selectedAgentId: id }))}
         selectedAgentId={gameState.selectedAgentId}
         dayTime={gameState.dayTime}
@@ -241,17 +303,6 @@ function App() {
         onTogglePause={() => setGameState(prev => ({ ...prev, paused: !prev.paused }))}
         selectedAgent={gameState.agents.find(a => a.id === gameState.selectedAgentId)}
       />
-      
-      {!process.env.API_KEY && (
-         <div className="absolute top-0 left-0 w-full h-full bg-black/80 z-50 flex items-center justify-center text-center p-10">
-           <div>
-             <h1 className="text-4xl text-red-500 font-bold mb-4">Configuration Error</h1>
-             <p className="text-xl text-gray-300">
-               Missing <code>process.env.API_KEY</code> for Gemini API.
-             </p>
-           </div>
-         </div>
-      )}
     </div>
   );
 }

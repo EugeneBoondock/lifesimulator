@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Text } from '@react-three/drei';
+import { Text, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
 import { Agent, AgentState } from '../types';
 
@@ -17,6 +17,7 @@ export const HumanoidModel: React.FC<HumanoidModelProps> = ({ agent, isSelected,
   const leftArm = useRef<THREE.Mesh>(null);
   const rightArm = useRef<THREE.Mesh>(null);
   const body = useRef<THREE.Mesh>(null);
+  const tool = useRef<THREE.Group>(null);
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime();
@@ -43,6 +44,10 @@ export const HumanoidModel: React.FC<HumanoidModelProps> = ({ agent, isSelected,
       }
       if (body.current) {
         body.current.rotation.y = Math.sin(t * 10) * 0.1; // Exertion
+      }
+      // Wobble tool
+      if (tool.current) {
+        tool.current.rotation.z = Math.sin(t * 20) * 0.2; 
       }
     } else if (agent.state === AgentState.SOCIALIZING) {
       // Bobbing head/body slightly
@@ -82,10 +87,12 @@ export const HumanoidModel: React.FC<HumanoidModelProps> = ({ agent, isSelected,
     ? [-Math.PI / 2, agent.rotation, 0] 
     : [0, agent.rotation, 0];
 
-  // Height adjustment for sleeping
+  // Height Fix:
+  // We lower the whole container so Y=0 is the bottom of the foot.
+  // Previous foot bottom was approx +0.275. We shift down by that amount.
   const position: [number, number, number] = [
     agent.position.x, 
-    agent.state === AgentState.SLEEPING ? 0.2 : agent.position.y, 
+    agent.state === AgentState.SLEEPING ? 0.2 : agent.position.y - 0.275, 
     agent.position.z
   ];
 
@@ -104,7 +111,8 @@ export const HumanoidModel: React.FC<HumanoidModelProps> = ({ agent, isSelected,
         </mesh>
       )}
 
-      <group position={[0, agent.state === AgentState.SLEEPING ? 0 : 0.75, 0]}>
+      {/* Agent Character Group */}
+      <group position={[0, 0.75, 0]}> 
         {/* HEAD */}
         <mesh position={[0, 0.65, 0]}>
           <boxGeometry args={[0.25, 0.25, 0.25]} />
@@ -119,6 +127,13 @@ export const HumanoidModel: React.FC<HumanoidModelProps> = ({ agent, isSelected,
            <boxGeometry args={[0.05, 0.02, 0.05]} />
            <meshStandardMaterial color="#000" />
         </mesh>
+        {/* MOUTH (Visible when socializing) */}
+        {agent.state === AgentState.SOCIALIZING && (
+           <mesh position={[0, 0.60, 0.13]}>
+             <boxGeometry args={[0.08, 0.03, 0.01]} />
+             <meshStandardMaterial color="#333" />
+           </mesh>
+        )}
 
         {/* BODY */}
         <mesh ref={body} position={[0, 0.3, 0]} castShadow>
@@ -140,7 +155,7 @@ export const HumanoidModel: React.FC<HumanoidModelProps> = ({ agent, isSelected,
            </mesh>
            {/* TOOL (only when working) */}
            {agent.state === AgentState.WORKING && (
-             <group position={[0, -0.4, 0.1]} rotation={[Math.PI/2, 0, 0]}>
+             <group ref={tool} position={[0, -0.4, 0.1]} rotation={[Math.PI/2, 0, 0]}>
                 <mesh position={[0, 0.2, 0]}>
                   <cylinderGeometry args={[0.02, 0.02, 0.6]} />
                   <meshStandardMaterial color="#854d0e" />
@@ -168,37 +183,56 @@ export const HumanoidModel: React.FC<HumanoidModelProps> = ({ agent, isSelected,
         </group>
       </group>
 
-      {/* NAMETAG */}
-      <Text
-        position={[0, 1.9, 0]}
-        rotation={[0, -agent.rotation, 0]} 
-        fontSize={0.2}
-        color="white"
-        anchorX="center"
-        anchorY="middle"
-        outlineWidth={0.02}
-        outlineColor="#000000"
+      {/* NAMETAG - Billboard ensures it always faces camera */}
+      <Billboard
+        position={[0, 1.8, 0]}
+        follow={true}
+        lockX={false}
+        lockY={false}
+        lockZ={false}
       >
-        {agent.name}
-      </Text>
+        <Text
+          fontSize={0.25}
+          color="white"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.02}
+          outlineColor="#000000"
+        >
+          {agent.name}
+        </Text>
+      </Billboard>
       
-      {/* CHAT BUBBLE */}
+      {/* CHAT BUBBLE - Billboard */}
       {agent.chatBubble && (
-        <group position={[0, 2.3, 0]} rotation={[0, -agent.rotation, 0]}>
-           <Text
-            fontSize={0.15}
-            color="#1e293b"
-            maxWidth={2}
-            textAlign="center"
-            anchorY="bottom"
-          >
-            {agent.chatBubble}
-          </Text>
-          <mesh position={[0, 0.2, -0.01]}>
-             <planeGeometry args={[2.2, 0.8]} /> 
-             <meshBasicMaterial color="white" transparent opacity={0.9} />
-          </mesh>
-        </group>
+        <Billboard
+          position={[0, 2.5, 0]}
+          follow={true}
+        >
+           <group>
+              {/* Bubble Background */}
+              <mesh position={[0, 0.2, -0.01]}>
+                <planeGeometry args={[3, 1]} /> 
+                <meshBasicMaterial color="white" transparent opacity={0.95} side={THREE.DoubleSide} />
+              </mesh>
+              {/* Triangle Pointer */}
+              <mesh position={[0, -0.4, -0.01]} rotation={[0, 0, Math.PI]} scale={[0.3, 0.3, 0.3]}>
+                 <coneGeometry args={[1, 1, 3]} />
+                 <meshBasicMaterial color="white" />
+              </mesh>
+              {/* Text */}
+              <Text
+                fontSize={0.18}
+                color="#000"
+                maxWidth={2.8}
+                textAlign="center"
+                anchorY="middle"
+                lineHeight={1.2}
+              >
+                {agent.chatBubble}
+              </Text>
+           </group>
+        </Billboard>
       )}
     </group>
   );

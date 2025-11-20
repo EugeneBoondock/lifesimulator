@@ -1,3 +1,4 @@
+
 // Core Entity Types
 
 export enum AgentState {
@@ -20,6 +21,7 @@ export interface AgentNeeds {
   energy: number;   // 0-100, 100 is fully rested
   social: number;   // 0-100, 100 is socially satisfied
   fun: number;      // 0-100
+  health: number;   // 0-100
 }
 
 export interface Personality {
@@ -48,28 +50,69 @@ export interface Agent {
   needs: AgentNeeds;
   personality: Personality;
   memories: Memory[];
+  relationships: Record<string, number>; // AgentID -> 0-100 Score (50 is neutral)
+  partnerId?: string;
   currentActionLabel: string;
   chatBubble?: string;
+  lastChatTime?: number; // Timestamp when chat started
 }
 
 export interface Building {
   id: string;
   position: Vector3;
-  type: 'CRATE' | 'WALL' | 'PLANT';
+  type: 'CRATE' | 'WALL' | 'PLANT' | 'HOUSE';
   ownerId: string;
   scale: number;
+}
+
+// --- NATURE & DISCOVERY ---
+
+export type FloraType = 'TREE_OAK' | 'TREE_PINE' | 'BUSH_BERRY' | 'MUSHROOM_RED' | 'MUSHROOM_BROWN';
+export type FaunaType = 'RABBIT' | 'CHICKEN' | 'WOLF';
+
+export interface Flora {
+  id: string;
+  type: FloraType;
+  position: Vector3;
+  scale: number;
+  isEdible: boolean;
+  isPoisonous: boolean;
+  nutritionValue: number;
+  regrowsAt?: number; // Tick when it respawns
+}
+
+export interface Fauna {
+  id: string;
+  type: FaunaType;
+  position: Vector3;
+  rotation: number;
+  state: 'IDLE' | 'MOVING' | 'FLEEING';
+  targetPosition: Vector3 | null;
+}
+
+// Global Knowledge: What the civilization has named things
+// Key = FloraType (e.g., 'MUSHROOM_RED'), Value = "Fire Spore"
+export interface KnowledgeBase {
+  [key: string]: {
+    customName: string;
+    discoveredBy: string; // Agent Name
+    description: string; // "It made me sick" or "It was delicious"
+  };
 }
 
 export interface WorldEvent {
   id: string;
   timestamp: number;
-  type: 'SYSTEM' | 'AGENT' | 'DIALOGUE';
+  type: 'SYSTEM' | 'AGENT' | 'DIALOGUE' | 'DISCOVERY';
   message: string;
 }
 
 export interface GameState {
   agents: Agent[];
   buildings: Building[];
+  flora: Flora[];
+  fauna: Fauna[];
+  knowledge: KnowledgeBase;
   time: number; // Tick count
   dayTime: number; // 0-24 hours
   logs: WorldEvent[];
@@ -80,9 +123,10 @@ export interface GameState {
 // AI Response Schemas
 
 export interface AgentDecision {
-  action: 'MOVE' | 'TALK' | 'WAIT' | 'WORK' | 'SLEEP';
-  targetAgentId?: string; // For TALK
+  action: 'MOVE' | 'TALK' | 'WAIT' | 'WORK' | 'SLEEP' | 'BUILD' | 'INSPECT' | 'HARVEST';
+  targetId?: string; // ID of Agent, Flora, or Fauna
   targetLocation?: { x: number, z: number }; // For MOVE
   thoughtProcess: string;
   dialogue?: string; // If talking
+  namingProposal?: string; // If inspecting something new, propose a name (e.g., "Sun Berry")
 }
