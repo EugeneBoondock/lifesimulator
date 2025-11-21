@@ -1,7 +1,8 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Agent, GameState } from '../types';
-import { Activity, MessageSquare, Zap, Brain, Clock, Pause, Play, Eye, Box, HeartPulse } from 'lucide-react';
+import { Activity, MessageSquare, Zap, Brain, Clock, Pause, Play, Eye, Box, HeartPulse, Cpu } from 'lucide-react';
+import { getAIStatus } from '../services/aiMindEngine';
 
 interface UIOverlayProps {
   gameState: GameState;
@@ -10,7 +11,13 @@ interface UIOverlayProps {
 }
 
 const UIOverlay: React.FC<UIOverlayProps> = ({ gameState, onTogglePause, selectedAgent }) => {
-  
+  const [aiStatus, setAIStatus] = useState(getAIStatus());
+
+  useEffect(() => {
+    const interval = setInterval(() => setAIStatus(getAIStatus()), 500);
+    return () => clearInterval(interval);
+  }, []);
+
   const getMoodColor = (val: number) => {
     if (val > 70) return 'bg-green-500';
     if (val > 30) return 'bg-yellow-500';
@@ -35,10 +42,23 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ gameState, onTogglePause, selecte
               <span>Time: {Math.floor(gameState.dayTime)}:00</span>
             </div>
             <div className="flex items-center gap-2">
+              <span>{gameState.season} | {gameState.weather}</span>
+            </div>
+            <div className="flex items-center gap-2">
               <Activity size={16} />
               <span>Agents: {gameState.agents.length}</span>
             </div>
+            <div className={`flex items-center gap-2 ${aiStatus.available ? 'text-green-400' : 'text-slate-500'}`}>
+              <Cpu size={16} />
+              <span>{aiStatus.available ? 'AI: On' : 'AI: Off'}</span>
+            </div>
           </div>
+          {aiStatus.lastThought && Date.now() - aiStatus.lastThought.time < 5000 && (
+            <div className="mt-2 text-xs text-purple-300 flex items-center gap-2 animate-pulse">
+              <Brain size={12} />
+              <span className="truncate max-w-[250px]">{aiStatus.lastThought.agent}: "{aiStatus.lastThought.thought}"</span>
+            </div>
+          )}
         </div>
 
         <button 
@@ -161,6 +181,67 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ gameState, onTogglePause, selecte
             <p>Select an agent to inspect brain</p>
           </div>
         )}
+
+        {/* AI Mind Panel */}
+        <div className="w-1/3 h-full bg-slate-900/80 backdrop-blur rounded-xl border border-slate-700 overflow-hidden flex flex-col">
+          <div className="p-3 border-b border-slate-700 bg-slate-800/50 font-semibold text-slate-200 flex items-center gap-2">
+            <Brain size={16} className="text-purple-400" /> AI Mind
+            {selectedAgent && <span className="text-xs text-slate-400 ml-2">({selectedAgent.name})</span>}
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-3 text-sm">
+            {selectedAgent ? (
+              <>
+                {/* Thoughts */}
+                <div>
+                  <div className="text-xs font-bold text-purple-300 mb-2 flex items-center gap-1">
+                    <Zap size={10} /> THOUGHTS
+                  </div>
+                  <div className="space-y-1 max-h-24 overflow-y-auto">
+                    {(selectedAgent.aiThoughts?.length ?? 0) > 0 ? (
+                      selectedAgent.aiThoughts?.slice(-5).reverse().map((thought, i) => (
+                        <div key={i} className="text-xs text-slate-300 bg-slate-800/50 p-2 rounded border-l-2 border-purple-500">
+                          "{thought}"
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-xs text-slate-500 italic">No thoughts yet...</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Conversations */}
+                <div>
+                  <div className="text-xs font-bold text-cyan-300 mb-2 flex items-center gap-1">
+                    <MessageSquare size={10} /> CONVERSATIONS
+                  </div>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {(selectedAgent.aiConversations?.length ?? 0) > 0 ? (
+                      selectedAgent.aiConversations?.slice(-5).reverse().map((conv, i) => (
+                        <div key={i} className="text-xs bg-slate-800/50 p-2 rounded border-l-2 border-cyan-500">
+                          <span className="text-cyan-400 font-semibold">To {conv.with}:</span>
+                          <span className="text-slate-300 ml-1">"{conv.message}"</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-xs text-slate-500 italic">No conversations yet...</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Current Action */}
+                <div className="bg-slate-800/50 p-2 rounded border border-slate-700">
+                  <div className="text-xs text-slate-400">Current Action:</div>
+                  <div className="text-sm text-white font-medium">{selectedAgent.currentActionLabel}</div>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                <Brain size={32} className="mb-2 opacity-50" />
+                <p className="text-xs">Select an agent to view AI mind</p>
+              </div>
+            )}
+          </div>
+        </div>
 
       </div>
     </div>

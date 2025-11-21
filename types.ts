@@ -77,6 +77,9 @@ export interface Agent {
   currentActionLabel: string;
   chatBubble?: string;
   lastChatTime?: number;
+  // AI Mind
+  aiThoughts: string[];  // Recent internal thoughts from AI
+  aiConversations: { with: string; message: string; time: number }[];  // Conversations
   // Internal Physics
   velocity: Vector3;
   radius: number;
@@ -100,6 +103,7 @@ export interface Building {
 
 export type FloraType = 'TREE_OAK' | 'TREE_PINE' | 'BUSH_BERRY' | 'MUSHROOM_RED' | 'MUSHROOM_BROWN' | 'RESOURCE_ROCK' | 'RESOURCE_MUD';
 export type FaunaType = 'RABBIT' | 'CHICKEN' | 'WOLF' | 'BEAR';
+export type WaterKind = 'RIVER' | 'PUDDLE';
 
 export interface Flora {
   id: string;
@@ -132,6 +136,16 @@ export interface Fauna {
   radius: number;
 }
 
+export interface WaterPatch {
+  id: string;
+  kind: WaterKind;
+  position: Vector3;
+  size: number;
+  length?: number;
+  rotation?: number;
+  ttl?: number;
+}
+
 // Global Knowledge
 export interface KnowledgeBase {
   [key: string]: {
@@ -149,24 +163,27 @@ export interface WorldEvent {
 }
 
 export type Season = 'SPRING' | 'SUMMER' | 'AUTUMN' | 'WINTER';
+export type Weather = 'CLEAR' | 'CLOUDY' | 'RAIN' | 'STORM' | 'SNOW';
 
 export interface GameState {
   agents: Agent[];
   buildings: Building[];
   flora: Flora[];
   fauna: Fauna[];
+  water: WaterPatch[];
   knowledge: KnowledgeBase;
   time: number; // Tick count
   dayTime: number; // 0-24 hours
   day: number; // Day count
   season: Season;
+  weather: Weather;
   logs: WorldEvent[];
   paused: boolean;
   selectedAgentId: string | null;
 }
 
 export interface AgentDecision {
-  action: "MOVE" | "TALK" | "WAIT" | "SLEEP" | "CRAFT" | "INSPECT" | "GATHER" | "TAME" | "ATTACK" | "FLEE";
+  action: "MOVE" | "TALK" | "WAIT" | "SLEEP" | "CRAFT" | "BUILD" | "INSPECT" | "GATHER" | "TAME" | "ATTACK" | "FLEE" | "SOCIAL" | "RESPOND" | "IGNORE" | "WANDER";
   targetId?: string;
   targetLocation?: { x: number; z: number };
   craftingRecipe?: string;

@@ -13,10 +13,11 @@ interface HumanoidModelProps {
 export const HumanoidModel: React.FC<HumanoidModelProps> = ({ agent, isSelected, onClick }) => {
   const groupRef = useRef<THREE.Group>(null);
   const body = useRef<THREE.Mesh>(null);
-  const rightArm = useRef<THREE.Mesh>(null);
-  const leftArm = useRef<THREE.Mesh>(null);
-  const leftLeg = useRef<THREE.Mesh>(null);
-  const rightLeg = useRef<THREE.Mesh>(null);
+  const rightArm = useRef<THREE.Group>(null);
+  const leftArm = useRef<THREE.Group>(null);
+  const leftLeg = useRef<THREE.Group>(null);
+  const rightLeg = useRef<THREE.Group>(null);
+  const accent = "#0ea5e9";
 
   // Carrying Logic
   const hasWood = (agent.inventory['WOOD'] || 0) > 0;
@@ -60,26 +61,41 @@ export const HumanoidModel: React.FC<HumanoidModelProps> = ({ agent, isSelected,
       
       <group position={[0, 0.75, 0]}> 
         {/* Body Parts */}
-        <mesh position={[0, 0.65, 0]}><boxGeometry args={[0.25, 0.25, 0.25]} /><meshStandardMaterial color="#f5d0b0" /></mesh>
+        <mesh position={[0, 0.65, 0]} castShadow><boxGeometry args={[0.25, 0.25, 0.25]} /><meshStandardMaterial color="#f5d0b0" /></mesh>
         <mesh position={[0.08, 0.68, 0.11]}><boxGeometry args={[0.05, 0.02, 0.05]} /><meshStandardMaterial color="black" /></mesh>
         <mesh position={[-0.08, 0.68, 0.11]}><boxGeometry args={[0.05, 0.02, 0.05]} /><meshStandardMaterial color="black" /></mesh>
-        <mesh ref={body} position={[0, 0.3, 0]} castShadow><boxGeometry args={[0.35, 0.45, 0.2]} /><meshStandardMaterial color={agent.color} /></mesh>
+        <mesh position={[0, 0.83, 0]} rotation={[0, 0, 0]}><cylinderGeometry args={[0.08, 0.08, 0.05, 10]} /><meshStandardMaterial color="#2f2f2f" /></mesh>
+        <mesh position={[0, 0.3, 0]} ref={body} castShadow>
+          <boxGeometry args={[0.35, 0.45, 0.2]} />
+          <meshStandardMaterial color={agent.color} />
+        </mesh>
+        <mesh position={[0, 0.15, -0.05]} scale={[0.4, 0.1, 0.5]}><boxGeometry args={[0.5, 0.2, 0.3]} /><meshStandardMaterial color={accent} /></mesh>
+        <mesh position={[0, 0.35, -0.12]} scale={[0.8, 0.1, 0.1]}><boxGeometry args={[0.5, 0.2, 0.3]} /><meshStandardMaterial color="#1e1b4b" /></mesh>
+        <mesh position={[0, 0.15, -0.15]} scale={[0.4, 0.4, 0.2]}><dodecahedronGeometry args={[0.4]} /><meshStandardMaterial color="#475569" roughness={0.9} /></mesh>
         
         <group position={[0.22, 0.45, 0]} ref={leftArm}>
             <mesh position={[0, -0.2, 0]}><boxGeometry args={[0.1, 0.45, 0.1]} /><meshStandardMaterial color="#f5d0b0" /></mesh>
+            <mesh position={[0, -0.45, 0]} scale={[0.16, 0.1, 0.16]}><boxGeometry args={[1,1,1]} /><meshStandardMaterial color={agent.color} /></mesh>
         </group>
         <group position={[-0.22, 0.45, 0]} ref={rightArm}>
             <mesh position={[0, -0.2, 0]}><boxGeometry args={[0.1, 0.45, 0.1]} /><meshStandardMaterial color="#f5d0b0" /></mesh>
+            <mesh position={[0, -0.45, 0]} scale={[0.16, 0.1, 0.16]}><boxGeometry args={[1,1,1]} /><meshStandardMaterial color={agent.color} /></mesh>
         </group>
-        <group position={[0.1, 0.1, 0]} ref={leftLeg}><mesh position={[0, -0.35, 0]}><boxGeometry args={[0.12, 0.45, 0.12]} /><meshStandardMaterial color="#1e293b" /></mesh></group>
-        <group position={[-0.1, 0.1, 0]} ref={rightLeg}><mesh position={[0, -0.35, 0]}><boxGeometry args={[0.12, 0.45, 0.12]} /><meshStandardMaterial color="#1e293b" /></mesh></group>
+        <group position={[0.1, 0.1, 0]} ref={leftLeg}>
+          <mesh position={[0, -0.35, 0]}><boxGeometry args={[0.12, 0.45, 0.12]} /><meshStandardMaterial color="#1e293b" /></mesh>
+          <mesh position={[0, -0.6, 0.05]} scale={[0.16, 0.08, 0.2]}><boxGeometry args={[1,1,1]} /><meshStandardMaterial color="#0f172a" /></mesh>
+        </group>
+        <group position={[-0.1, 0.1, 0]} ref={rightLeg}>
+          <mesh position={[0, -0.35, 0]}><boxGeometry args={[0.12, 0.45, 0.12]} /><meshStandardMaterial color="#1e293b" /></mesh>
+          <mesh position={[0, -0.6, 0.05]} scale={[0.16, 0.08, 0.2]}><boxGeometry args={[1,1,1]} /><meshStandardMaterial color="#0f172a" /></mesh>
+        </group>
 
         {/* CARRYING ITEM VISUAL */}
         {isCarrying && (
             <group position={[0, 0.3, 0.5]}>
-                {hasWood && <mesh rotation={[0,0,Math.PI/2]}><cylinderGeometry args={[0.1, 0.1, 0.8]} /><meshStandardMaterial color="#5d4037" /></mesh>}
-                {hasStone && !hasWood && <mesh><dodecahedronGeometry args={[0.25]} /><meshStandardMaterial color="#78716c" /></mesh>}
-                {hasMud && !hasWood && !hasStone && <mesh><sphereGeometry args={[0.25]} /><meshStandardMaterial color="#3e2723" /></mesh>}
+                {hasWood && <mesh rotation={[0,0,Math.PI/2]}><cylinderGeometry args={[0.1, 0.1, 0.8, 12]} /><meshStandardMaterial color="#5d4037" /></mesh>}
+                {hasStone && !hasWood && <mesh><dodecahedronGeometry args={[0.25, 1]} /><meshStandardMaterial color="#78716c" /></mesh>}
+                {hasMud && !hasWood && !hasStone && <mesh><sphereGeometry args={[0.25, 16, 12]} /><meshStandardMaterial color="#3e2723" /></mesh>}
             </group>
         )}
       </group>
@@ -90,11 +106,41 @@ export const HumanoidModel: React.FC<HumanoidModelProps> = ({ agent, isSelected,
       
       {agent.chatBubble && (
         <Billboard position={[0, 2.5, 0]} follow>
-           <group>
-              <mesh position={[0, 0.2, -0.01]}><planeGeometry args={[3, 1]} /><meshBasicMaterial color="white" opacity={0.95} transparent /></mesh>
-              <mesh position={[0, -0.4, -0.01]} rotation={[0,0,Math.PI]} scale={[0.3,0.3,0.3]}><coneGeometry args={[1,1,3]} /><meshBasicMaterial color="white" /></mesh>
-              <Text fontSize={0.18} color="black" maxWidth={2.8} textAlign="center">{agent.chatBubble}</Text>
-           </group>
+          {(() => {
+            const bubbleText = agent.chatBubble;
+            const lines = Math.max(1, Math.ceil(bubbleText.length / 28));
+            const bubbleWidth = 3.1;
+            const bubbleHeight = 0.55 + lines * 0.32;
+            const bubblePaddingY = 0.25;
+            const planeY = bubblePaddingY + bubbleHeight / 2;
+            const tipY = bubblePaddingY - 0.08;
+
+            return (
+              <group>
+                <mesh position={[0, planeY, -0.01]}>
+                  <planeGeometry args={[bubbleWidth, bubbleHeight]} />
+                  <meshBasicMaterial color="white" opacity={0.95} transparent />
+                </mesh>
+                <mesh position={[0, tipY, -0.01]} rotation={[0, 0, Math.PI]} scale={[0.3, 0.3, 0.3]}>
+                  <coneGeometry args={[1, 1, 3]} />
+                  <meshBasicMaterial color="white" />
+                </mesh>
+                <Text
+                  position={[0, planeY, 0.02]}
+                  fontSize={0.18}
+                  lineHeight={1.2}
+                  color="black"
+                  maxWidth={bubbleWidth - 0.5}
+                  anchorX="center"
+                  anchorY="middle"
+                  textAlign="center"
+                  overflowWrap="break-word"
+                >
+                  {bubbleText}
+                </Text>
+              </group>
+            );
+          })()}
         </Billboard>
       )}
     </group>

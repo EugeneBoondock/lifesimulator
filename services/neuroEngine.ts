@@ -45,6 +45,8 @@ const updateHormones = (agent: Agent, gameState: GameState): NeuroChemistry => {
 
   neuro.dopamine = Math.max(10, neuro.dopamine - 0.1);
 
+  const nearCampfire = gameState.buildings.some(b => b.type === 'CAMPFIRE' && dist(b.position, agent.position) < 6);
+
   const nearbyFriends = gameState.agents.filter(a => a.id !== agent.id && dist(a.position, agent.position) < 5);
   if (nearbyFriends.length > 0) {
       const socialGain = 0.5 + (agent.personality.extraversion * 0.5);
@@ -52,6 +54,13 @@ const updateHormones = (agent: Agent, gameState: GameState): NeuroChemistry => {
   } else {
       const socialDecay = 0.1 + (agent.personality.extraversion * 0.1);
       neuro.oxytocin = Math.max(0, neuro.oxytocin - socialDecay);
+  }
+
+  // Fires provide psychological safety even if not built by this agent
+  if (nearCampfire) {
+      neuro.cortisol = Math.max(0, neuro.cortisol - 1.5);
+      neuro.adrenaline = Math.max(0, neuro.adrenaline - 0.8);
+      neuro.dopamine = Math.min(100, neuro.dopamine + 0.3);
   }
 
   return neuro;
@@ -62,8 +71,20 @@ const updateHormones = (agent: Agent, gameState: GameState): NeuroChemistry => {
 const solveGoal_Safety = (agent: Agent, gameState: GameState, neuro: NeuroChemistry): Partial<Agent> | null => {
   const threatDistance = 8; 
   const threat = gameState.fauna.find(f => f.isAggressive && dist(f.position, agent.position) < threatDistance);
+  const safeFire = gameState.buildings.find(b => b.type === 'CAMPFIRE' && dist(b.position, agent.position) < 6);
   
   if (threat && (dist(threat.position, agent.position) < 4 || neuro.cortisol > 75)) {
+     // If near a fire and the threat isn't on top of it, stay by the flames instead of panicking
+     if (safeFire && dist(threat.position, safeFire.position) > 5) {
+        return {
+          state: AgentState.IDLE,
+          targetPosition: safeFire.position,
+          currentActionLabel: "Staying by the fire",
+          chatBubble: "The fire keeps me safe.",
+          lastChatTime: gameState.time,
+          neuro
+        };
+     }
      return {
         state: AgentState.FLEEING,
         targetPosition: { x: -agent.position.x + (Math.random()*10), y: 0, z: -agent.position.z + (Math.random()*10) },
@@ -113,14 +134,18 @@ const solveGoal_Hunger = (agent: Agent, gameState: GameState, neuro: NeuroChemis
 
 const solveGoal_BuildShelter = (agent: Agent, gameState: GameState, neuro: NeuroChemistry): Partial<Agent> | null => {
    const hasHouse = gameState.buildings.some(b => b.type === 'HOUSE' && b.ownerId === agent.id);
+   const isNight = gameState.dayTime < 6 || gameState.dayTime > 19;
+   const badWeather = gameState.weather === 'RAIN' || gameState.weather === 'STORM' || gameState.weather === 'SNOW';
+   const seasonalPressure = gameState.season === 'WINTER';
+   const shelterUrgent = (!hasHouse) && (badWeather || seasonalPressure || isNight || agent.needs.temperature < 45);
    if (hasHouse) return null;
 
    // Persist existing build plan
    if (agent.targetId === 'BUILD_HOUSE_SITE') return null;
 
    // More agents will try to build now, unless totally careless
-   if (agent.personality.conscientiousness < 0.2 && neuro.cortisol < 80 && agent.needs.temperature > 30) {
-       return null; 
+   if (!shelterUrgent && agent.personality.conscientiousness < 0.2 && neuro.cortisol < 80 && agent.needs.temperature > 30) {
+       return null;
    }
 
    const wood = agent.inventory['WOOD'] || 0;

@@ -1,6 +1,6 @@
-import { Agent, AgentState, Flora, Fauna, FaunaType, Season } from "./types";
+import { Agent, AgentState, Flora, Fauna, FaunaType, Season, WaterPatch } from "./types";
 
-export const WORLD_SIZE = 60;
+export const WORLD_SIZE = 150;
 export const TICK_RATE_MS = 1000; 
 export const DAY_LENGTH_TICKS = 2400; 
 export const SEASON_LENGTH_DAYS = 3; // Short seasons for demo
@@ -27,21 +27,21 @@ export const SEASON_PROPERTIES: Record<Season, { tempMod: number, colorMod: stri
 export const getTerrainHeight = (x: number, z: number) => {
     const dist = Math.sqrt(x*x + z*z);
     
-    // Layer 1: Base Low Frequency
-    let h = Math.sin(x * 0.1) * Math.cos(z * 0.1) * 1.5;
+    // Layer 1: Base Low Frequency (Broad rolling hills)
+    let h = Math.sin(x * 0.04) * Math.cos(z * 0.04) * 3.0;
     
-    // Layer 2: Medium Frequency (Hilliness)
-    h += Math.sin(x * 0.3 + 1.2) * Math.cos(z * 0.2 + 2.5) * 0.5;
+    // Layer 2: Medium Frequency (Local variation)
+    h += Math.sin(x * 0.1 + 1.2) * Math.cos(z * 0.1 + 2.5) * 1.0;
     
-    // Layer 3: High Frequency (Roughness)
-    h += Math.sin(x * 0.7) * Math.cos(z * 0.6) * 0.1;
+    // Layer 3: High Frequency (Detail roughness)
+    h += Math.sin(x * 0.3) * Math.cos(z * 0.25) * 0.2;
     
-    // Mountains on outskirts
-    if (dist > 25) h += Math.pow((dist - 25) * 0.25, 2.5);
+    // Mountains on outskirts - push them further out
+    if (dist > 60) h += Math.pow((dist - 60) * 0.15, 2.5);
     
-    // Flatten center (Drylands/Spawn)
-    if (dist < 20) {
-        const flattenFactor = Math.max(0, Math.min(1, (dist - 12) / 8));
+    // Flatten center (Drylands/Spawn) - larger flat area
+    if (dist < 45) {
+        const flattenFactor = Math.max(0, Math.min(1, (dist - 25) / 20));
         h *= flattenFactor;
     }
     
@@ -86,6 +86,8 @@ export const INITIAL_AGENTS: Agent[] = [
     relationships: { 'npc_2': 50, 'npc_3': 50 },
     inventory: {},
     currentActionLabel: 'Initializing...',
+    aiThoughts: [],
+    aiConversations: [],
     velocity: {x:0,y:0,z:0},
     radius: 0.5,
     sickness: 'NONE'
@@ -113,6 +115,8 @@ export const INITIAL_AGENTS: Agent[] = [
     relationships: { 'npc_1': 50, 'npc_3': 40 },
     inventory: {},
     currentActionLabel: 'Initializing...',
+    aiThoughts: [],
+    aiConversations: [],
     velocity: {x:0,y:0,z:0},
     radius: 0.5,
     sickness: 'NONE'
@@ -140,6 +144,8 @@ export const INITIAL_AGENTS: Agent[] = [
     relationships: { 'npc_1': 50, 'npc_2': 40 },
     inventory: {},
     currentActionLabel: 'Initializing...',
+    aiThoughts: [],
+    aiConversations: [],
     velocity: {x:0,y:0,z:0},
     radius: 0.5,
     sickness: 'NONE'
@@ -147,6 +153,37 @@ export const INITIAL_AGENTS: Agent[] = [
 ];
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
+
+export const generateRivers = (count: number): WaterPatch[] => {
+  const rivers: WaterPatch[] = [];
+  for (let i = 0; i < count; i++) {
+    const segmentCount = 15 + Math.floor(Math.random() * 10);
+    const width = 3.5 + Math.random() * 2.5;
+    let x = (Math.random() - 0.5) * WORLD_SIZE * 0.6;
+    let z = -WORLD_SIZE / 2;
+    let angle = (Math.random() * Math.PI) / 3 - Math.PI / 6; // Slight meander around Z axis
+
+    for (let s = 0; s < segmentCount; s++) {
+      const length = 8 + Math.random() * 8;
+      x += Math.sin(angle) * length;
+      z += Math.cos(angle) * length;
+      // Keep inside bounds
+      x = Math.max(-WORLD_SIZE / 2 + width, Math.min(WORLD_SIZE / 2 - width, x));
+      z = Math.max(-WORLD_SIZE / 2 + width, Math.min(WORLD_SIZE / 2 - width, z));
+      angle += (Math.random() - 0.5) * 0.5; // Less sharp turns for smoother rivers
+
+      rivers.push({
+        id: `river_${i}_${s}_${generateId()}`,
+        kind: 'RIVER',
+        position: { x, y: getTerrainHeight(x, z) - 0.1, z }, // Lower water slightly more
+        size: width,
+        length,
+        rotation: angle
+      });
+    }
+  }
+  return rivers;
+};
 
 export const generateFlora = (count: number): Flora[] => {
   const items: Flora[] = [];
@@ -190,7 +227,7 @@ export const generateFlora = (count: number): Flora[] => {
     items.push({
       id: generateId(),
       type,
-      position: { x, y: 0, z },
+      position: { x, y: 0, z }, // Y is updated by physics/world logic usually, or here if static
       scale,
       isEdible: edible,
       isPoisonous: poisonous,
@@ -247,5 +284,6 @@ export const generateFauna = (count: number): Fauna[] => {
   return items;
 };
 
-export const INITIAL_FLORA = generateFlora(80);
-export const INITIAL_FAUNA = generateFauna(12);
+export const INITIAL_FLORA = generateFlora(250);
+export const INITIAL_FAUNA = generateFauna(40);
+export const INITIAL_WATER: WaterPatch[] = generateRivers(5);
