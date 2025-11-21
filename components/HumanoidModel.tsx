@@ -12,225 +12,88 @@ interface HumanoidModelProps {
 
 export const HumanoidModel: React.FC<HumanoidModelProps> = ({ agent, isSelected, onClick }) => {
   const groupRef = useRef<THREE.Group>(null);
+  const body = useRef<THREE.Mesh>(null);
+  const rightArm = useRef<THREE.Mesh>(null);
+  const leftArm = useRef<THREE.Mesh>(null);
   const leftLeg = useRef<THREE.Mesh>(null);
   const rightLeg = useRef<THREE.Mesh>(null);
-  const leftArm = useRef<THREE.Mesh>(null);
-  const rightArm = useRef<THREE.Mesh>(null);
-  const body = useRef<THREE.Mesh>(null);
-  const tool = useRef<THREE.Group>(null);
+
+  // Carrying Logic
+  const hasWood = (agent.inventory['WOOD'] || 0) > 0;
+  const hasStone = (agent.inventory['STONE'] || 0) > 0;
+  const hasMud = (agent.inventory['MUD'] || 0) > 0;
+  const isCarrying = hasWood || hasStone || hasMud;
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime();
-    
-    // ANIMATIONS
     if (agent.state === AgentState.MOVING) {
-      const speed = 10;
-      if (leftLeg.current && rightLeg.current) {
-        leftLeg.current.rotation.x = Math.sin(t * speed) * 0.5;
-        rightLeg.current.rotation.x = Math.sin(t * speed + Math.PI) * 0.5;
-      }
-      if (leftArm.current && rightArm.current) {
-        leftArm.current.rotation.x = Math.sin(t * speed + Math.PI) * 0.5;
-        rightArm.current.rotation.x = Math.sin(t * speed) * 0.5;
-      }
+        if (leftLeg.current && rightLeg.current) {
+            leftLeg.current.rotation.x = Math.sin(t * 10) * 0.6;
+            rightLeg.current.rotation.x = Math.sin(t * 10 + Math.PI) * 0.6;
+        }
+        // If not carrying, swing arms
+        if (!isCarrying && leftArm.current && rightArm.current) {
+            leftArm.current.rotation.x = Math.sin(t * 10 + Math.PI) * 0.5;
+            rightArm.current.rotation.x = Math.sin(t * 10) * 0.5;
+        }
     } else if (agent.state === AgentState.WORKING) {
-      // Hammering / Building animation
-      if (rightArm.current) {
-        rightArm.current.rotation.x = Math.abs(Math.sin(t * 15)) - 1.5; // Chop/Hammer motion
+        if (rightArm.current) {
+            rightArm.current.rotation.x = Math.sin(t * 15) * 0.8 - 1.0; 
+        }
+    }
+
+    // Carrying Override (Hold arms out)
+    if (isCarrying && rightArm.current && leftArm.current) {
+        rightArm.current.rotation.x = -1.0; 
+        leftArm.current.rotation.x = -1.0;
         rightArm.current.rotation.z = -0.2;
-      }
-      if (leftArm.current) {
-         leftArm.current.rotation.x = -0.5; // Hold steady
-      }
-      if (body.current) {
-        body.current.rotation.y = Math.sin(t * 10) * 0.1; // Exertion
-      }
-      // Wobble tool
-      if (tool.current) {
-        tool.current.rotation.z = Math.sin(t * 20) * 0.2; 
-      }
-    } else if (agent.state === AgentState.SOCIALIZING) {
-      // Bobbing head/body slightly
-      if (body.current) {
-         body.current.rotation.z = Math.sin(t * 3) * 0.05;
-      }
-      if (leftArm.current && rightArm.current) {
-         leftArm.current.rotation.z = 0.1;
-         rightArm.current.rotation.z = -0.1;
-         // Gesturing
-         rightArm.current.rotation.x = Math.sin(t * 5) * 0.3 - 0.5;
-      }
-    } else if (agent.state === AgentState.SLEEPING) {
-       // Breathing while lying down
-       if (body.current) {
-         body.current.scale.setScalar(1 + Math.sin(t * 2) * 0.02);
-       }
-    } else {
-      // IDLE
-      if (leftLeg.current && rightLeg.current) {
-        leftLeg.current.rotation.x = 0;
-        rightLeg.current.rotation.x = 0;
-      }
-      if (leftArm.current && rightArm.current) {
-        leftArm.current.rotation.x = Math.sin(t) * 0.05;
-        rightArm.current.rotation.x = Math.cos(t) * 0.05;
-      }
+        leftArm.current.rotation.z = 0.2;
     }
   });
 
-  const skinColor = "#f5d0b0"; 
-  const shirtColor = agent.color;
-  const pantsColor = "#1e293b";
-
-  // Determine rotation: If sleeping, rotate -90deg on X, otherwise use agent's Y rotation
-  const rotation: [number, number, number] = agent.state === AgentState.SLEEPING 
-    ? [-Math.PI / 2, agent.rotation, 0] 
-    : [0, agent.rotation, 0];
-
-  // Height Fix:
-  // We lower the whole container so Y=0 is the bottom of the foot.
-  // Previous foot bottom was approx +0.275. We shift down by that amount.
-  const position: [number, number, number] = [
-    agent.position.x, 
-    agent.state === AgentState.SLEEPING ? 0.2 : agent.position.y - 0.275, 
-    agent.position.z
-  ];
+  const position: [number, number, number] = [agent.position.x, agent.state === AgentState.SLEEPING ? 0.2 : agent.position.y - 0.275, agent.position.z];
+  const rotation: [number, number, number] = agent.state === AgentState.SLEEPING ? [-Math.PI / 2, agent.rotation, 0] : [0, agent.rotation, 0];
 
   return (
-    <group 
-      ref={groupRef} 
-      position={position} 
-      rotation={rotation}
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
-    >
-      {/* Selection Ring */}
-      {isSelected && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, 0]}>
-          <ringGeometry args={[0.6, 0.8, 32]} />
-          <meshBasicMaterial color="#facc15" />
-        </mesh>
-      )}
-
-      {/* Agent Character Group */}
+    <group ref={groupRef} position={position} rotation={rotation} onClick={(e) => { e.stopPropagation(); onClick(); }}>
+      {isSelected && <mesh rotation={[-Math.PI/2,0,0]} position={[0,0.05,0]}><ringGeometry args={[0.6,0.8,32]} /><meshBasicMaterial color="#facc15" /></mesh>}
+      
       <group position={[0, 0.75, 0]}> 
-        {/* HEAD */}
-        <mesh position={[0, 0.65, 0]}>
-          <boxGeometry args={[0.25, 0.25, 0.25]} />
-          <meshStandardMaterial color={skinColor} />
-        </mesh>
-        {/* EYES */}
-        <mesh position={[0.08, 0.68, 0.11]}>
-           <boxGeometry args={[0.05, 0.02, 0.05]} />
-           <meshStandardMaterial color="#000" />
-        </mesh>
-        <mesh position={[-0.08, 0.68, 0.11]}>
-           <boxGeometry args={[0.05, 0.02, 0.05]} />
-           <meshStandardMaterial color="#000" />
-        </mesh>
-        {/* MOUTH (Visible when socializing) */}
-        {agent.state === AgentState.SOCIALIZING && (
-           <mesh position={[0, 0.60, 0.13]}>
-             <boxGeometry args={[0.08, 0.03, 0.01]} />
-             <meshStandardMaterial color="#333" />
-           </mesh>
-        )}
-
-        {/* BODY */}
-        <mesh ref={body} position={[0, 0.3, 0]} castShadow>
-          <boxGeometry args={[0.35, 0.45, 0.2]} />
-          <meshStandardMaterial color={shirtColor} />
-        </mesh>
-
-        {/* ARMS */}
+        {/* Body Parts */}
+        <mesh position={[0, 0.65, 0]}><boxGeometry args={[0.25, 0.25, 0.25]} /><meshStandardMaterial color="#f5d0b0" /></mesh>
+        <mesh position={[0.08, 0.68, 0.11]}><boxGeometry args={[0.05, 0.02, 0.05]} /><meshStandardMaterial color="black" /></mesh>
+        <mesh position={[-0.08, 0.68, 0.11]}><boxGeometry args={[0.05, 0.02, 0.05]} /><meshStandardMaterial color="black" /></mesh>
+        <mesh ref={body} position={[0, 0.3, 0]} castShadow><boxGeometry args={[0.35, 0.45, 0.2]} /><meshStandardMaterial color={agent.color} /></mesh>
+        
         <group position={[0.22, 0.45, 0]} ref={leftArm}>
-          <mesh position={[0, -0.2, 0]}>
-             <boxGeometry args={[0.1, 0.45, 0.1]} />
-             <meshStandardMaterial color={skinColor} />
-          </mesh>
+            <mesh position={[0, -0.2, 0]}><boxGeometry args={[0.1, 0.45, 0.1]} /><meshStandardMaterial color="#f5d0b0" /></mesh>
         </group>
         <group position={[-0.22, 0.45, 0]} ref={rightArm}>
-           <mesh position={[0, -0.2, 0]}>
-             <boxGeometry args={[0.1, 0.45, 0.1]} />
-             <meshStandardMaterial color={skinColor} />
-           </mesh>
-           {/* TOOL (only when working) */}
-           {agent.state === AgentState.WORKING && (
-             <group ref={tool} position={[0, -0.4, 0.1]} rotation={[Math.PI/2, 0, 0]}>
-                <mesh position={[0, 0.2, 0]}>
-                  <cylinderGeometry args={[0.02, 0.02, 0.6]} />
-                  <meshStandardMaterial color="#854d0e" />
-                </mesh>
-                <mesh position={[0, 0.5, 0]}>
-                  <boxGeometry args={[0.1, 0.2, 0.1]} />
-                  <meshStandardMaterial color="#94a3b8" />
-                </mesh>
-             </group>
-           )}
+            <mesh position={[0, -0.2, 0]}><boxGeometry args={[0.1, 0.45, 0.1]} /><meshStandardMaterial color="#f5d0b0" /></mesh>
         </group>
+        <group position={[0.1, 0.1, 0]} ref={leftLeg}><mesh position={[0, -0.35, 0]}><boxGeometry args={[0.12, 0.45, 0.12]} /><meshStandardMaterial color="#1e293b" /></mesh></group>
+        <group position={[-0.1, 0.1, 0]} ref={rightLeg}><mesh position={[0, -0.35, 0]}><boxGeometry args={[0.12, 0.45, 0.12]} /><meshStandardMaterial color="#1e293b" /></mesh></group>
 
-        {/* LEGS */}
-        <group position={[0.1, 0.1, 0]} ref={leftLeg}>
-           <mesh position={[0, -0.35, 0]}>
-             <boxGeometry args={[0.12, 0.45, 0.12]} />
-             <meshStandardMaterial color={pantsColor} />
-           </mesh>
-        </group>
-         <group position={[-0.1, 0.1, 0]} ref={rightLeg}>
-           <mesh position={[0, -0.35, 0]}>
-             <boxGeometry args={[0.12, 0.45, 0.12]} />
-             <meshStandardMaterial color={pantsColor} />
-           </mesh>
-        </group>
+        {/* CARRYING ITEM VISUAL */}
+        {isCarrying && (
+            <group position={[0, 0.3, 0.5]}>
+                {hasWood && <mesh rotation={[0,0,Math.PI/2]}><cylinderGeometry args={[0.1, 0.1, 0.8]} /><meshStandardMaterial color="#5d4037" /></mesh>}
+                {hasStone && !hasWood && <mesh><dodecahedronGeometry args={[0.25]} /><meshStandardMaterial color="#78716c" /></mesh>}
+                {hasMud && !hasWood && !hasStone && <mesh><sphereGeometry args={[0.25]} /><meshStandardMaterial color="#3e2723" /></mesh>}
+            </group>
+        )}
       </group>
 
-      {/* NAMETAG - Billboard ensures it always faces camera */}
-      <Billboard
-        position={[0, 1.8, 0]}
-        follow={true}
-        lockX={false}
-        lockY={false}
-        lockZ={false}
-      >
-        <Text
-          fontSize={0.25}
-          color="white"
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.02}
-          outlineColor="#000000"
-        >
-          {agent.name}
-        </Text>
+      <Billboard position={[0, 1.8, 0]} follow lockX={false} lockY={false} lockZ={false}>
+        <Text fontSize={0.25} color="white" outlineWidth={0.02} outlineColor="black">{agent.name}</Text>
       </Billboard>
       
-      {/* CHAT BUBBLE - Billboard */}
       {agent.chatBubble && (
-        <Billboard
-          position={[0, 2.5, 0]}
-          follow={true}
-        >
+        <Billboard position={[0, 2.5, 0]} follow>
            <group>
-              {/* Bubble Background */}
-              <mesh position={[0, 0.2, -0.01]}>
-                <planeGeometry args={[3, 1]} /> 
-                <meshBasicMaterial color="white" transparent opacity={0.95} side={THREE.DoubleSide} />
-              </mesh>
-              {/* Triangle Pointer */}
-              <mesh position={[0, -0.4, -0.01]} rotation={[0, 0, Math.PI]} scale={[0.3, 0.3, 0.3]}>
-                 <coneGeometry args={[1, 1, 3]} />
-                 <meshBasicMaterial color="white" />
-              </mesh>
-              {/* Text */}
-              <Text
-                fontSize={0.18}
-                color="#000"
-                maxWidth={2.8}
-                textAlign="center"
-                anchorY="middle"
-                lineHeight={1.2}
-              >
-                {agent.chatBubble}
-              </Text>
+              <mesh position={[0, 0.2, -0.01]}><planeGeometry args={[3, 1]} /><meshBasicMaterial color="white" opacity={0.95} transparent /></mesh>
+              <mesh position={[0, -0.4, -0.01]} rotation={[0,0,Math.PI]} scale={[0.3,0.3,0.3]}><coneGeometry args={[1,1,3]} /><meshBasicMaterial color="white" /></mesh>
+              <Text fontSize={0.18} color="black" maxWidth={2.8} textAlign="center">{agent.chatBubble}</Text>
            </group>
         </Billboard>
       )}
