@@ -297,35 +297,99 @@ const BuildingRenderer: React.FC<{ building: Building }> = ({ building }) => {
            </group>
          ) : building.type === 'CAMPFIRE' ? (
            <group>
-             <pointLight color="#f97316" intensity={3} distance={8} decay={2} position={[0, 1, 0]} />
-             <mesh position={[0, 0.05, 0]}><cylinderGeometry args={[0.65, 0.65, 0.25, 24]} /><meshStandardMaterial color="#431407" /></mesh>
-             <mesh position={[0.4, 0.2, 0]} rotation={[Math.PI / 2, 0.8, 0]} castShadow><cylinderGeometry args={[0.08, 0.12, 1.2, 10]} /><meshStandardMaterial color="#8d5524" /></mesh>
-             <mesh position={[-0.4, 0.25, -0.1]} rotation={[Math.PI / 2, -0.6, 0]} castShadow><cylinderGeometry args={[0.08, 0.12, 1.2, 10]} /><meshStandardMaterial color="#9c6644" /></mesh>
-             <mesh position={[0, 0.18, 0.35]} rotation={[Math.PI / 2, 0.1, 0]} castShadow><cylinderGeometry args={[0.08, 0.12, 1.0, 10]} /><meshStandardMaterial color="#854d0e" /></mesh>
-             <mesh position={[0, 0.5, 0]} castShadow scale={0.4}><sphereGeometry args={[0.8, 16, 12]} /><meshStandardMaterial color="#b45309" emissive="#fb923c" emissiveIntensity={0.5} /></mesh>
-             <Sparkles count={25} scale={1.6} size={2.3} speed={0.4} opacity={0.8} color="#fbbf24" position={[0,0.9,0]} />
+             <pointLight color="#f97316" intensity={3} distance={8} decay={2} position={[0, 1.1, 0]} />
+             <mesh position={[0, 0.2, 0]}><cylinderGeometry args={[0.7, 0.7, 0.3, 24]} /><meshStandardMaterial color="#431407" /></mesh>
+             <mesh position={[0.4, 0.35, 0]} rotation={[Math.PI / 2, 0.8, 0]} castShadow><cylinderGeometry args={[0.08, 0.12, 1.2, 10]} /><meshStandardMaterial color="#8d5524" /></mesh>
+             <mesh position={[-0.4, 0.4, -0.1]} rotation={[Math.PI / 2, -0.6, 0]} castShadow><cylinderGeometry args={[0.08, 0.12, 1.2, 10]} /><meshStandardMaterial color="#9c6644" /></mesh>
+             <mesh position={[0, 0.32, 0.35]} rotation={[Math.PI / 2, 0.1, 0]} castShadow><cylinderGeometry args={[0.08, 0.12, 1.0, 10]} /><meshStandardMaterial color="#854d0e" /></mesh>
+             <mesh position={[0, 0.75, 0]} castShadow scale={0.5}><sphereGeometry args={[0.8, 16, 12]} /><meshStandardMaterial color="#b45309" emissive="#fb923c" emissiveIntensity={0.7} /></mesh>
+             <Sparkles count={25} scale={1.6} size={2.3} speed={0.4} opacity={0.8} color="#fbbf24" position={[0,1,0]} />
            </group>
          ) : null}
      </group>
   );
 };
 
-const WaterSurface: React.FC<{ patch: WaterPatch }> = ({ patch }) => {
-  const width = patch.length ?? patch.size;
-  const height = patch.size;
-  const rotation = patch.rotation ?? 0;
-  const color = patch.kind === 'PUDDLE' ? '#a5f3fc' : '#38bdf8';
-  const opacity = patch.kind === 'PUDDLE' ? 0.55 : 0.65;
+const BuildPreview: React.FC<{ position: { x: number; z: number }; type: 'HOUSE' | 'CAMPFIRE' }> = ({ position, type }) => {
+  const y = getTerrainHeight(position.x, position.z) + 0.02;
+  const isHouse = type === 'HOUSE';
+  const color = isHouse ? '#93c5fd' : '#fdba74';
+  const sizeX = isHouse ? 2.4 : 1.6;
+  const sizeZ = isHouse ? 2.4 : 1.6;
 
   return (
-    <mesh
-      position={[patch.position.x, patch.position.y, patch.position.z]}
-      rotation={[-Math.PI / 2, rotation, 0]}
-      receiveShadow
-    >
-      <planeGeometry args={[width, height]} />
-      <meshStandardMaterial color={color} transparent opacity={opacity} metalness={0.6} roughness={0.1} />
-    </mesh>
+    <group position={[position.x, y, position.z]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[sizeX, sizeZ]} />
+        <meshStandardMaterial color={color} transparent opacity={0.25} />
+      </mesh>
+      <mesh position={[0, 0.3, 0]} >
+        <boxGeometry args={[isHouse ? 2.2 : 1.0, 0.6, isHouse ? 2.2 : 1.0]} />
+        <meshStandardMaterial color={color} transparent opacity={0.18} />
+      </mesh>
+    </group>
+  );
+};
+
+const WaterSurface: React.FC<{ patch: WaterPatch }> = ({ patch }) => {
+  const isPuddle = patch.kind === 'PUDDLE';
+  const width = isPuddle ? patch.size * 1.2 : patch.length ?? patch.size;
+  const height = isPuddle ? patch.size : patch.size;
+  const rotation = isPuddle ? 0 : patch.rotation ?? 0;
+  const color = isPuddle ? '#a5f3fc' : '#38bdf8';
+  const opacity = isPuddle ? 0.55 : 0.65;
+  const cx = patch.position.x;
+  const cz = patch.position.z;
+
+  const halfW = width * 0.5;
+  const halfH = height * 0.5;
+  const sampleOffsets: [number, number][] = [
+    [0, 0],
+    [halfW, halfH],
+    [-halfW, halfH],
+    [halfW, -halfH],
+    [-halfW, -halfH],
+    [halfW * 0.6, 0],
+    [-halfW * 0.6, 0],
+    [0, halfH * 0.6],
+    [0, -halfH * 0.6]
+  ];
+  const cosR = Math.cos(rotation);
+  const sinR = Math.sin(rotation);
+  const minGround = Math.min(
+    ...sampleOffsets.map(([dx, dz]) => {
+      const rx = isPuddle ? dx : dx * cosR - dz * sinR;
+      const rz = isPuddle ? dz : dx * sinR + dz * cosR;
+      return getTerrainHeight(cx + rx, cz + rz);
+    })
+  );
+  const y = minGround - 0.03; // Sink slightly to avoid floating on slopes
+
+  const puddleGeometry = useMemo(() => {
+    if (!isPuddle) return null;
+    const radius = patch.size * 0.6;
+    const segments = 14;
+    const points: THREE.Vector2[] = [];
+    for (let i = 0; i < segments; i++) {
+      const angle = (i / segments) * Math.PI * 2;
+      const r = radius * (0.8 + Math.random() * 0.4);
+      points.push(new THREE.Vector2(Math.cos(angle) * r, Math.sin(angle) * r));
+    }
+    const shape = new THREE.Shape(points);
+    return new THREE.ShapeGeometry(shape);
+  }, [isPuddle, patch.id, patch.size]);
+
+  return (
+    <group position={[cx, y, cz]} rotation={[0, rotation, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        {isPuddle ? (
+          puddleGeometry ? <primitive object={puddleGeometry} /> : <circleGeometry args={[patch.size * 0.6, 14]} />
+        ) : (
+          <planeGeometry args={[width, height]} />
+        )}
+        <meshStandardMaterial color={color} transparent opacity={opacity} metalness={0.6} roughness={0.1} />
+      </mesh>
+    </group>
   );
 };
 
@@ -395,6 +459,15 @@ const World3D: React.FC<World3DProps> = (props) => {
         />
         <Terrain season={props.season} />
         {props.water.map(p => <WaterSurface key={p.id} patch={p} />)}
+        {props.agents
+          .filter(a => a.targetId === 'BUILD_HOUSE_SITE' || a.targetId === 'BUILD_CAMPFIRE')
+          .map(a => (
+            <BuildPreview
+              key={`preview_${a.id}`}
+              position={a.targetPosition ? { x: a.targetPosition.x, z: a.targetPosition.z } : { x: a.position.x, z: a.position.z }}
+              type={a.targetId === 'BUILD_HOUSE_SITE' ? 'HOUSE' : 'CAMPFIRE'}
+            />
+          ))}
 
         {props.flora.map(f => <FloraRenderer key={f.id} item={f} season={props.season} />)}
         {props.fauna.map(f => <FaunaRenderer key={f.id} item={f} />)}

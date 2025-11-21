@@ -1,6 +1,6 @@
 
 import { Agent, AgentState, GameState, Flora, Fauna, Building, Vector3, NeuroChemistry, ActionMemory, Personality } from "../types";
-import { CRAFTING_RECIPES, CHAT_TEMPLATES, WORLD_SIZE } from "../constants";
+import { CRAFTING_RECIPES, CHAT_TEMPLATES, WORLD_SIZE, getTerrainHeight } from "../constants";
 
 // Helper for distances
 const dist = (a: Vector3, b: Vector3) => Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.z - b.z, 2));
@@ -24,6 +24,7 @@ const updateHormones = (agent: Agent, gameState: GameState): NeuroChemistry => {
   let stressFactors = 0;
   
   if (agent.needs.hunger < 30) stressFactors += 2;
+  if ((agent.needs as any).thirst !== undefined && agent.needs.thirst < 40) stressFactors += 3;
   if (agent.needs.temperature < 40) stressFactors += 3;
   if (!hasHouse) { 
       const homelessStress = 5 + (agent.personality.conscientiousness * 5); 
@@ -38,6 +39,10 @@ const updateHormones = (agent: Agent, gameState: GameState): NeuroChemistry => {
   if (predators.length > 0) stressFactors += 10;
 
   neuro.cortisol = Math.min(100, Math.max(0, neuro.cortisol + (stressFactors * stressMultiplier * 0.5) - 0.2));
+  if (gameState.governance) {
+    const cohesionEffect = (gameState.governance.cohesion - 50) * 0.01;
+    neuro.cortisol = Math.max(0, neuro.cortisol - cohesionEffect);
+  }
   
   const panicThreshold = 90 - (agent.personality.neuroticism * 20);
   if (neuro.cortisol > panicThreshold) neuro.adrenaline = Math.min(100, neuro.adrenaline + 5);
@@ -132,65 +137,94 @@ const solveGoal_Hunger = (agent: Agent, gameState: GameState, neuro: NeuroChemis
    return null;
 };
 
+const solveGoal_Thirst = (agent: Agent, gameState: GameState, neuro: NeuroChemistry): Partial<Agent> | null => {
+  const thirstThreshold = 50 - (agent.personality.conscientiousness * 20);
+  if ((agent.needs as any).thirst !== undefined && agent.needs.thirst < thirstThreshold) {
+    const nearbyWater = (gameState.water || []).map(w => ({ w, d: dist(agent.position, w.position) })).sort((a,b) => a.d - b.d)[0];
+    if (nearbyWater && nearbyWater.d < 80) {
+      return { state: AgentState.MOVING, targetPosition: nearbyWater.w.position, targetId: 'WATER_SOURCE', currentActionLabel: "Seeking water", neuro };
+    }
+  }
+  return null;
+};
+
 const solveGoal_BuildShelter = (agent: Agent, gameState: GameState, neuro: NeuroChemistry): Partial<Agent> | null => {
-   const hasHouse = gameState.buildings.some(b => b.type === 'HOUSE' && b.ownerId === agent.id);
-   const isNight = gameState.dayTime < 6 || gameState.dayTime > 19;
-   const badWeather = gameState.weather === 'RAIN' || gameState.weather === 'STORM' || gameState.weather === 'SNOW';
-   const seasonalPressure = gameState.season === 'WINTER';
-   const shelterUrgent = (!hasHouse) && (badWeather || seasonalPressure || isNight || agent.needs.temperature < 45);
-   if (hasHouse) return null;
+  const hasHouse = gameState.buildings.some(b => b.type === 'HOUSE' && b.ownerId === agent.id);
+  if (hasHouse) return null;
 
-   // Persist existing build plan
-   if (agent.targetId === 'BUILD_HOUSE_SITE') return null;
+  const isNight = gameState.dayTime < 6 || gameState.dayTime > 19;
+  const badWeather = gameState.weather === 'RAIN' || gameState.weather === 'STORM' || gameState.weather === 'SNOW';
+  const seasonalPressure = gameState.season === 'WINTER';
+  const cold = agent.needs.temperature < 55;
+  const shelterUrgent = badWeather || seasonalPressure || isNight || cold;
 
-   // More agents will try to build now, unless totally careless
-   if (!shelterUrgent && agent.personality.conscientiousness < 0.2 && neuro.cortisol < 80 && agent.needs.temperature > 30) {
-       return null;
-   }
+  // Keep existing house plan active
+  if (agent.targetId === 'BUILD_HOUSE_SITE') return null;
 
-   const wood = agent.inventory['WOOD'] || 0;
-   const stone = agent.inventory['STONE'] || 0;
-   const mud = agent.inventory['MUD'] || 0;
+  const wood = agent.inventory['WOOD'] || 0;
+  const stone = agent.inventory['STONE'] || 0;
+  const mud = agent.inventory['MUD'] || 0;
 
-   if (wood >= 4 && stone >= 2 && mud >= 2) {
-       const range = agent.personality.openness * 40; 
-       const angle = Math.random() * Math.PI * 2;
-       const buildX = agent.position.x + Math.sin(angle) * (range + 5); 
-       const buildZ = agent.position.z + Math.cos(angle) * (range + 5);
-       
-       return { state: AgentState.MOVING, targetPosition: {x: buildX, y:0, z: buildZ}, targetId: 'BUILD_HOUSE_SITE', currentActionLabel: "Found a spot for my house", neuro };
-   }
+  // Quick warmth if exposed and we have wood
+  if ((badWeather || cold || isNight) && wood >= 2) {
+    return { state: AgentState.WORKING, targetId: 'BUILD_CAMPFIRE', currentActionLabel: "Building fire", neuro };
+  }
 
-   let needed = '';
-   if (wood < 4) needed = 'WOOD';
-   else if (stone < 2) needed = 'STONE';
-   else if (mud < 2) needed = 'MUD';
-   
-   // If already gathering the right thing, don't switch targets
-   if (agent.state === AgentState.MOVING && agent.targetId) {
-       const currentTarget = gameState.flora.find(f => f.id === agent.targetId);
-       if (currentTarget && currentTarget.resourceYield === needed) return null; 
-   }
+  // Proactively build a house whenever possible (no longer wait for strict urgency)
+  if (wood >= 4 && stone >= 2 && mud >= 2) {
+    const range = 6 + agent.personality.openness * 25;
+    const angle = Math.random() * Math.PI * 2;
+    const buildX = agent.position.x + Math.sin(angle) * range;
+    const buildZ = agent.position.z + Math.cos(angle) * range;
+    const buildY = getTerrainHeight(buildX, buildZ);
 
-   const resources = gameState.flora.filter(f => f.resourceYield === needed && (f.resourcesLeft || 0) > 0);
-   
-   if (agent.personality.conscientiousness > 0.5) {
-       resources.sort((a, b) => dist(agent.position, a.position) - dist(agent.position, b.position));
-   } else {
-       resources.sort(() => Math.random() - 0.5);
-   }
-   
-   const resource = resources[0];
+    return {
+      state: AgentState.MOVING,
+      targetPosition: { x: buildX, y: buildY, z: buildZ },
+      targetId: 'BUILD_HOUSE_SITE',
+      currentActionLabel: "Building my house",
+      neuro
+    };
+  }
 
-   if (resource) return { state: AgentState.MOVING, targetPosition: resource.position, targetId: resource.id, currentActionLabel: `Gathering ${needed}`, neuro };
-   
-   // Search if nothing found
-   return { 
-       state: AgentState.MOVING, 
-       targetPosition: { x: (Math.random()-0.5)*WORLD_SIZE, y: 0, z: (Math.random()-0.5)*WORLD_SIZE }, 
-       currentActionLabel: `Searching for ${needed}...`, 
-       neuro 
-   };
+  let needed = '';
+  if (wood < 4) needed = 'WOOD';
+  else if (stone < 2) needed = 'STONE';
+  else needed = 'MUD';
+
+  // If already gathering the right thing, don't switch targets
+  if (agent.state === AgentState.MOVING && agent.targetId) {
+    const currentTarget = gameState.flora.find(f => f.id === agent.targetId);
+    if (currentTarget && currentTarget.resourceYield === needed) return null;
+  }
+
+  const resources = gameState.flora.filter(f => f.resourceYield === needed && (f.resourcesLeft || 0) > 0);
+
+  if (agent.personality.conscientiousness > 0.4) {
+    resources.sort((a, b) => dist(agent.position, a.position) - dist(agent.position, b.position));
+  } else {
+    resources.sort(() => Math.random() - 0.5);
+  }
+
+  const resource = resources[0];
+
+  if (resource) {
+    return {
+      state: AgentState.MOVING,
+      targetPosition: resource.position,
+      targetId: resource.id,
+      currentActionLabel: `Gathering ${needed}`,
+      neuro
+    };
+  }
+
+  // Search if nothing found
+  return {
+    state: AgentState.MOVING,
+    targetPosition: { x: (Math.random() - 0.5) * WORLD_SIZE, y: 0, z: (Math.random() - 0.5) * WORLD_SIZE },
+    currentActionLabel: `Searching for ${needed}...`,
+    neuro
+  };
 };
 
 const solveGoal_Social = (agent: Agent, gameState: GameState, neuro: NeuroChemistry): Partial<Agent> | null => {
@@ -227,6 +261,28 @@ const solveGoal_Social = (agent: Agent, gameState: GameState, neuro: NeuroChemis
     return null;
 };
 
+const solveGoal_Hunt = (agent: Agent, gameState: GameState, neuro: NeuroChemistry): Partial<Agent> | null => {
+  if (agent.needs.hunger > 60) return null;
+  const prey = gameState.fauna
+    .filter(f => !f.isAggressive)
+    .map(f => ({ f, d: dist(agent.position, f.position) }))
+    .sort((a, b) => a.d - b.d)[0];
+  if (prey && prey.d < 60) {
+    return { state: AgentState.MOVING, targetPosition: prey.f.position, targetId: prey.f.id, currentActionLabel: "Hunting prey", neuro };
+  }
+  return null;
+};
+
+const solveGoal_Tools = (agent: Agent, gameState: GameState, neuro: NeuroChemistry): Partial<Agent> | null => {
+  const hasTool = agent.equippedTool || agent.inventory['SPEAR'] || agent.inventory['STONE_AXE'];
+  if (!hasTool && (agent.needs.hunger < 70 || neuro.cortisol > 60)) {
+    if ((agent.inventory['WOOD'] || 0) >= 1 && (agent.inventory['STONE'] || 0) >= 1) {
+      return { state: AgentState.WORKING, targetId: 'CRAFT_SPEAR', currentActionLabel: "Crafting a spear", neuro };
+    }
+  }
+  return null;
+};
+
 // --- MAIN BEHAVIOR UPDATE ---
 export const updateAgentBehavior = (agent: Agent, gameState: GameState): Partial<Agent> => {
   const newNeuro = updateHormones(agent, gameState);
@@ -241,12 +297,21 @@ export const updateAgentBehavior = (agent: Agent, gameState: GameState): Partial
   const sickAction = solveGoal_Sickness(agent, gameState, newNeuro);
   if (sickAction) return sickAction;
 
+  const thirstAction = solveGoal_Thirst(agent, gameState, newNeuro);
+  if (thirstAction) return thirstAction;
+
   // Hunger Priority Increased (Above Safety)
   const hungerPriority = 40;
   if (agent.needs.health < 30 || agent.needs.hunger < hungerPriority) {
       const hungerAction = solveGoal_Hunger(agent, gameState, newNeuro);
       if (hungerAction) return hungerAction;
   }
+
+  const huntAction = solveGoal_Hunt(agent, gameState, newNeuro);
+  if (huntAction) return huntAction;
+
+  const toolAction = solveGoal_Tools(agent, gameState, newNeuro);
+  if (toolAction) return toolAction;
 
   // Safety (Moved Down)
   const safetyAction = solveGoal_Safety(agent, gameState, newNeuro);

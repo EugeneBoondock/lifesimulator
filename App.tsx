@@ -5,6 +5,7 @@ import { GameState, Agent, AgentState, Building, Flora, Fauna, Season, Weather, 
 import World3D from './components/World3D';
 import UIOverlay from './components/UIOverlay';
 import { updateAgentBehavior, learnActionOutcome } from './services/neuroEngine';
+import { deriveFeelings, deriveFeelingsAI } from './services/subconsciousEngine';
 import { getAIDecision, applyAIDecision } from './services/aiMindEngine';
 import { audioManager } from './services/audioService';
 import { initDB, loadAllAgents, saveAllAgents } from './services/memoryStorage';
@@ -19,13 +20,15 @@ function App() {
     flora: INITIAL_FLORA,
     fauna: INITIAL_FAUNA,
     water: INITIAL_WATER,
+    places: [],
     knowledge: {},
     time: 0,
-    dayTime: 12, 
+    dayTime: 12,
     day: 1,
     season: 'SPRING',
     weather: 'CLEAR',
     logs: [{ id: 'init', timestamp: 0, type: 'SYSTEM', message: 'Neuro-Chemical Engine Initiated.' }],
+    governance: { leaderId: INITIAL_AGENTS[0]?.id || null, cohesion: 60 },
     paused: false,
     selectedAgentId: null
   });
@@ -101,6 +104,7 @@ function App() {
       });
       pos.x = Math.max(-WORLD_SIZE/2, Math.min(WORLD_SIZE/2, pos.x));
       pos.z = Math.max(-WORLD_SIZE/2, Math.min(WORLD_SIZE/2, pos.z));
+      pos.y = getTerrainHeight(pos.x, pos.z);
       return pos;
   };
 
@@ -151,6 +155,7 @@ function App() {
         let activeAgents = [...prev.agents];
         let activeFauna = [...prev.fauna];
         let water: WaterPatch[] = prev.water.map(w => ({ ...w }));
+        let governance = { ...(prev.governance || { leaderId: INITIAL_AGENTS[0]?.id || null, cohesion: 60 }) };
         let faunaToRemove: string[] = [];
 
         // --- WATER FEATURES (Rivers & Puddles) ---
@@ -274,14 +279,14 @@ function App() {
 
           // Only use neuroEngine fallback if agent is IDLE (AI not controlling)
           if (updatedAgent.state === AgentState.IDLE) {
-            const behaviorUpdates = updateAgentBehavior(updatedAgent, { ...prev, season: nextSeason, agents: activeAgents, buildings, flora, fauna: nextFauna });
+            const behaviorUpdates = updateAgentBehavior(updatedAgent, { ...prev, season: nextSeason, agents: activeAgents, buildings, flora, fauna: nextFauna, water, governance });
             if (behaviorUpdates.chatBubble && behaviorUpdates.lastChatTime !== agent.lastChatTime) audioManager.playChat();
             updatedAgent = { ...updatedAgent, ...behaviorUpdates };
           }
 
           // AI Mind: Core decision engine via Ollama (cooldown handled in aiMindEngine)
           // Try AI for any idle agent
-          getAIDecision(updatedAgent, { ...prev, season: nextSeason, agents: activeAgents, buildings, flora, fauna: nextFauna })
+          getAIDecision(updatedAgent, { ...prev, season: nextSeason, agents: activeAgents, buildings, flora, fauna: nextFauna, water, governance })
               .then(decision => {
                 if (decision) {
                   const aiUpdate = applyAIDecision(updatedAgent, decision, prev) || {};
@@ -336,12 +341,26 @@ function App() {
                }
                else if (tFaunaIdx !== -1) {
                    const animal = activeFauna[tFaunaIdx];
-                   if (!animal.isAggressive && !animal.isTamed) {
+                   const hunting = animal.isAggressive || (updatedAgent.currentActionLabel || '').toLowerCase().includes('hunt');
+                   if (!animal.isAggressive && !animal.isTamed && !hunting) {
                        animal.isTamed = true;
                        animal.ownerId = updatedAgent.id;
                        updatedAgent.neuro.dopamine += 30;
                        updatedAgent.neuro.oxytocin += 20;
                        logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} tamed a ${animal.type}!`});
+                   } else {
+                       const tool = updatedAgent.equippedTool || (updatedAgent.inventory['SPEAR'] ? 'SPEAR' : updatedAgent.inventory['STONE_AXE'] ? 'STONE_AXE' : undefined);
+                       const dmg = tool === 'SPEAR' ? 50 : tool === 'STONE_AXE' ? 40 : 20;
+                       animal.health -= dmg;
+                       updatedAgent.neuro.adrenaline = Math.min(100, updatedAgent.neuro.adrenaline + 5);
+                       logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} attacked a ${animal.type}${tool ? ' with ' + tool : ''}`});
+                       if (animal.health <= 0) {
+                           faunaToRemove.push(animal.id);
+                           updatedAgent.inventory['MEAT'] = (updatedAgent.inventory['MEAT'] || 0) + 2;
+                           updatedAgent.needs.hunger = Math.min(100, updatedAgent.needs.hunger + 25);
+                           logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} hunted a ${animal.type} and gathered meat.`});
+                           governance.cohesion = Math.min(100, governance.cohesion + 1);
+                       }
                    }
                }
                else if (targetId === 'BUILD_HOUSE_SITE') {
@@ -351,14 +370,38 @@ function App() {
                        updatedAgent.neuro.serotonin += 50;
                        audioManager.playBuild();
                        logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} constructed a HOUSE!`});
+                       governance.cohesion = Math.min(100, governance.cohesion + 2);
                    }
                }
                else if (targetId === 'BUILD_CAMPFIRE' && updatedAgent.inventory['WOOD'] >= 2) {
-                   buildings.push({ id: generateId(), position: { x: updatedAgent.position.x + 2, y: 0, z: updatedAgent.position.z }, type: 'CAMPFIRE', ownerId: updatedAgent.id, scale: 1, radius: 1, health: 50 });
-                   updatedAgent.inventory['WOOD'] -= 2;
-                   audioManager.playBuild();
-                   logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} built a fire!`});
-               }
+                  const campfireX = updatedAgent.position.x + 2;
+                  const campfireZ = updatedAgent.position.z;
+                  const campfireY = getTerrainHeight(campfireX, campfireZ);
+                  buildings.push({ id: generateId(), position: { x: campfireX, y: campfireY + 0.05, z: campfireZ }, type: 'CAMPFIRE', ownerId: updatedAgent.id, scale: 1, radius: 1, health: 50 });
+                  updatedAgent.inventory['WOOD'] -= 2;
+                  audioManager.playBuild();
+                  logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} built a fire!`});
+                  governance.cohesion = Math.min(100, governance.cohesion + 1);
+              }
+              else if (targetId === 'CRAFT_SPEAR' && updatedAgent.inventory['WOOD'] >= 1 && updatedAgent.inventory['STONE'] >= 1) {
+                  updatedAgent.inventory['WOOD'] -= 1; updatedAgent.inventory['STONE'] -= 1;
+                  updatedAgent.equippedTool = 'SPEAR';
+                  updatedAgent.inventory['SPEAR'] = (updatedAgent.inventory['SPEAR'] || 0) + 1;
+                  updatedAgent.currentActionLabel = "Crafted a spear";
+                  logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} crafted a SPEAR.`});
+              }
+              else if (targetId === 'CRAFT_STONE_AXE' && updatedAgent.inventory['WOOD'] >= 1 && updatedAgent.inventory['STONE'] >= 2) {
+                  updatedAgent.inventory['WOOD'] -= 1; updatedAgent.inventory['STONE'] -= 2;
+                  updatedAgent.equippedTool = 'STONE_AXE';
+                  updatedAgent.inventory['STONE_AXE'] = (updatedAgent.inventory['STONE_AXE'] || 0) + 1;
+                  updatedAgent.currentActionLabel = "Crafted a stone axe";
+                  logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} crafted a STONE AXE.`});
+              }
+              else if (targetId === 'WATER_SOURCE') {
+                  updatedAgent.needs.thirst = Math.min(100, updatedAgent.needs.thirst + 40);
+                  updatedAgent.currentActionLabel = "Drinking water";
+                  logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} drank fresh water.`});
+              }
           };
 
           // Handle Movement Completion (walking or fleeing)
@@ -394,7 +437,9 @@ function App() {
 
           // Check if target still exists (prevent stuck state)
           if (updatedAgent.targetId && !updatedAgent.targetId.startsWith('BUILD_')) {
-               const exists = flora.some(f => f.id === updatedAgent.targetId && (f.resourcesLeft || 0) > 0) || activeFauna.some(f => f.id === updatedAgent.targetId);
+               const exists = flora.some(f => f.id === updatedAgent.targetId && (f.resourcesLeft || 0) > 0)
+                 || activeFauna.some(f => f.id === updatedAgent.targetId)
+                 || updatedAgent.targetId === 'WATER_SOURCE';
                if (!exists) {
                    updatedAgent.state = AgentState.IDLE;
                    updatedAgent.targetPosition = null;
@@ -423,6 +468,7 @@ function App() {
                  // Boost social needs for both
                  updatedAgent.needs.social = Math.min(100, updatedAgent.needs.social + 10);
                  partner.needs.social = Math.min(100, partner.needs.social + 10);
+                 governance.cohesion = Math.min(100, governance.cohesion + 0.5);
                  logs.push({id: generateId(), timestamp: nextTime, type: 'DIALOGUE', message: `${updatedAgent.name} and ${partner.name} are chatting`});
                }
 
@@ -436,11 +482,25 @@ function App() {
           }
 
           updatedAgent.position = resolveCollisions(updatedAgent, activeAgents, buildings, flora);
+          // Subconscious feelings driven by neuro chemistry
+          const felt = deriveFeelings(updatedAgent);
+          updatedAgent.feelings = felt.feelings;
+          updatedAgent.mood = felt.mood;
+          deriveFeelingsAI(updatedAgent).then(aiFelt => {
+            if (aiFelt) {
+              setGameState(g => ({
+                ...g,
+                agents: g.agents.map(a =>
+                  a.id === agent.id ? { ...a, feelings: aiFelt.feelings, mood: aiFelt.mood } : a
+                )
+              }));
+            }
+          }).catch(() => {});
           if (updatedAgent.chatBubble && updatedAgent.lastChatTime && (nextTime - updatedAgent.lastChatTime > 100)) updatedAgent.chatBubble = undefined;
           
           // STAT DECAY & DISEASE
           if (updatedAgent.state !== AgentState.SLEEPING) {
-             updatedAgent.needs.energy -= 0.02; updatedAgent.needs.hunger -= 0.03; updatedAgent.needs.social -= 0.02;
+             updatedAgent.needs.energy -= 0.02; updatedAgent.needs.hunger -= 0.03; updatedAgent.needs.thirst -= 0.05; updatedAgent.needs.social -= 0.02;
              let tempChange = isNight ? -0.1 : 0.2;
              tempChange += SEASON_PROPERTIES[nextSeason].tempMod * 0.01;
              // Weather affects temperature
@@ -450,6 +510,15 @@ function App() {
              if (nearFire) tempChange += 0.5;
              if (updatedAgent.sickness !== 'NONE') updatedAgent.needs.energy -= 0.05;
              updatedAgent.needs.temperature = Math.min(100, Math.max(0, updatedAgent.needs.temperature + tempChange));
+             // Hydrate if raining or near water
+             const nearWater = water.some(w => dist(w.position, updatedAgent.position) < (w.kind === 'PUDDLE' ? 2.5 : 3.5));
+             if (isRaining || nearWater) {
+               updatedAgent.needs.thirst = Math.min(100, updatedAgent.needs.thirst + (nearWater ? 1.5 : 0.5));
+             }
+             if (updatedAgent.needs.thirst < 15) {
+               updatedAgent.needs.health = Math.max(0, updatedAgent.needs.health - 0.05);
+             }
+             updatedAgent.needs.thirst = Math.max(0, updatedAgent.needs.thirst);
           }
           
           return updatedAgent;
@@ -458,7 +527,7 @@ function App() {
         // Filter out depleted flora
         flora = flora.filter(f => !f.isOnFire && (f.resourcesLeft || 0) > 0);
 
-        return { ...prev, time: nextTime, dayTime: nextDayTime, day: nextDay, season: nextSeason, weather: nextWeather, agents: nextAgents, fauna: nextFauna, flora, buildings, water, logs: logs.slice(-50) };
+        return { ...prev, time: nextTime, dayTime: nextDayTime, day: nextDay, season: nextSeason, weather: nextWeather, agents: nextAgents, fauna: nextFauna, flora, buildings, water, governance, logs: logs.slice(-50) };
       });
     }, 250);
     return () => clearInterval(interval);
@@ -467,10 +536,16 @@ function App() {
   return (
     <div className="w-screen h-screen relative overflow-hidden" onClick={() => audioManager.playStep()}>
       <World3D
-        agents={gameState.agents} buildings={gameState.buildings} flora={gameState.flora} fauna={gameState.fauna} water={gameState.water}
+        agents={gameState.agents.map(a => ({ ...a, position: { ...a.position, y: getTerrainHeight(a.position.x, a.position.z) } }))}
+        buildings={gameState.buildings}
+        flora={gameState.flora}
+        fauna={gameState.fauna}
+        water={gameState.water}
         onSelectAgent={(id) => setGameState(prev => ({ ...prev, selectedAgentId: id }))}
-        selectedAgentId={gameState.selectedAgentId} dayTime={gameState.dayTime}
-        season={gameState.season} weather={gameState.weather}
+        selectedAgentId={gameState.selectedAgentId}
+        dayTime={gameState.dayTime}
+        season={gameState.season}
+        weather={gameState.weather}
       />
       <UIOverlay gameState={gameState} onTogglePause={() => setGameState(prev => ({ ...prev, paused: !prev.paused }))} selectedAgent={gameState.agents.find(a => a.id === gameState.selectedAgentId)} />
     </div>

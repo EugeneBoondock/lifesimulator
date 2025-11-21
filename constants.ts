@@ -7,7 +7,9 @@ export const SEASON_LENGTH_DAYS = 3; // Short seasons for demo
 
 export const CRAFTING_RECIPES = {
   'CAMPFIRE': { 'WOOD': 2 },
-  'HOUSE': { 'WOOD': 4, 'STONE': 2, 'MUD': 2 }
+  'HOUSE': { 'WOOD': 4, 'STONE': 2, 'MUD': 2 },
+  'SPEAR': { 'WOOD': 1, 'STONE': 1 },
+  'STONE_AXE': { 'WOOD': 1, 'STONE': 2 }
 };
 
 export const SYSTEM_INSTRUCTION = `You are an autonomous agent in a survival simulation game.
@@ -71,7 +73,7 @@ export const INITIAL_AGENTS: Agent[] = [
     rotation: 0,
     targetPosition: null,
     state: AgentState.IDLE,
-    needs: { hunger: 80, energy: 90, social: 50, fun: 60, health: 100, temperature: 70 },
+    needs: { hunger: 80, thirst: 80, energy: 90, social: 50, fun: 60, health: 100, temperature: 70 },
     neuro: { dopamine: 50, serotonin: 80, adrenaline: 10, oxytocin: 60, cortisol: 10 },
     actionMemories: [],
     personality: {
@@ -83,6 +85,10 @@ export const INITIAL_AGENTS: Agent[] = [
       bio: "An energetic leader."
     },
     memories: [],
+    leadership: 0.8,
+    role: 'LEADER',
+    feelings: [],
+    mood: 'neutral',
     relationships: { 'npc_2': 50, 'npc_3': 50 },
     inventory: {},
     currentActionLabel: 'Initializing...',
@@ -100,7 +106,7 @@ export const INITIAL_AGENTS: Agent[] = [
     rotation: Math.PI,
     targetPosition: null,
     state: AgentState.IDLE,
-    needs: { hunger: 60, energy: 70, social: 30, fun: 40, health: 100, temperature: 70 },
+    needs: { hunger: 60, thirst: 70, energy: 70, social: 30, fun: 40, health: 100, temperature: 70 },
     neuro: { dopamine: 70, serotonin: 50, adrenaline: 20, oxytocin: 30, cortisol: 20 },
     actionMemories: [],
     personality: {
@@ -112,6 +118,10 @@ export const INITIAL_AGENTS: Agent[] = [
       bio: "Cautious and analytical."
     },
     memories: [],
+    leadership: 0.3,
+    role: 'CITIZEN',
+    feelings: [],
+    mood: 'neutral',
     relationships: { 'npc_1': 50, 'npc_3': 40 },
     inventory: {},
     currentActionLabel: 'Initializing...',
@@ -129,7 +139,7 @@ export const INITIAL_AGENTS: Agent[] = [
     rotation: Math.PI / 2,
     targetPosition: null,
     state: AgentState.IDLE,
-    needs: { hunger: 50, energy: 50, social: 80, fun: 20, health: 100, temperature: 70 },
+    needs: { hunger: 50, thirst: 75, energy: 50, social: 80, fun: 20, health: 100, temperature: 70 },
     neuro: { dopamine: 40, serotonin: 60, adrenaline: 0, oxytocin: 20, cortisol: 0 },
     actionMemories: [],
     personality: {
@@ -141,6 +151,10 @@ export const INITIAL_AGENTS: Agent[] = [
       bio: "Survivalist."
     },
     memories: [],
+    leadership: 0.5,
+    role: 'CITIZEN',
+    feelings: [],
+    mood: 'neutral',
     relationships: { 'npc_1': 50, 'npc_2': 40 },
     inventory: {},
     currentActionLabel: 'Initializing...',
@@ -157,25 +171,34 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 export const generateRivers = (count: number): WaterPatch[] => {
   const rivers: WaterPatch[] = [];
   for (let i = 0; i < count; i++) {
-    const segmentCount = 15 + Math.floor(Math.random() * 10);
-    const width = 3.5 + Math.random() * 2.5;
+    const segmentCount = 12 + Math.floor(Math.random() * 6);
+    const width = 2.5 + Math.random() * 1.5;
     let x = (Math.random() - 0.5) * WORLD_SIZE * 0.6;
     let z = -WORLD_SIZE / 2;
     let angle = (Math.random() * Math.PI) / 3 - Math.PI / 6; // Slight meander around Z axis
+    let lastHeight = getTerrainHeight(x, z);
 
     for (let s = 0; s < segmentCount; s++) {
-      const length = 8 + Math.random() * 8;
+      const length = 6 + Math.random() * 6;
       x += Math.sin(angle) * length;
       z += Math.cos(angle) * length;
       // Keep inside bounds
       x = Math.max(-WORLD_SIZE / 2 + width, Math.min(WORLD_SIZE / 2 - width, x));
       z = Math.max(-WORLD_SIZE / 2 + width, Math.min(WORLD_SIZE / 2 - width, z));
-      angle += (Math.random() - 0.5) * 0.5; // Less sharp turns for smoother rivers
+      angle += (Math.random() - 0.5) * 0.4; // Small meander, avoid steep diagonals
+
+      const h = getTerrainHeight(x, z);
+      // Skip steep segments to prevent floating on hillsides
+      if (Math.abs(h - lastHeight) > 0.6) {
+        lastHeight = h;
+        continue;
+      }
+      lastHeight = h;
 
       rivers.push({
         id: `river_${i}_${s}_${generateId()}`,
         kind: 'RIVER',
-        position: { x, y: getTerrainHeight(x, z) - 0.1, z }, // Lower water slightly more
+        position: { x, y: h, z },
         size: width,
         length,
         rotation: angle
@@ -227,7 +250,7 @@ export const generateFlora = (count: number): Flora[] => {
     items.push({
       id: generateId(),
       type,
-      position: { x, y: 0, z }, // Y is updated by physics/world logic usually, or here if static
+      position: { x, y: h, z }, // Set Y to terrain height
       scale,
       isEdible: edible,
       isPoisonous: poisonous,
@@ -271,7 +294,7 @@ export const generateFauna = (count: number): Fauna[] => {
     items.push({
       id: generateId(),
       type: type,
-      position: { x, y: 0, z },
+      position: { x, y: h, z },
       rotation: Math.random() * Math.PI * 2,
       state: 'IDLE',
       targetPosition: null,

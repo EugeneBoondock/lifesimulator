@@ -93,14 +93,16 @@ What you see nearby:
 - Resources: ${nearbyFlora || "nothing useful"}
 - Animals: ${nearbyFauna || "none"}
 - People: ${nearbyAgents || "you are alone"}
+- Named places: ${gameState.places?.filter(p => getDist(p.position, agent.position) < 20).map(p => `"${p.name}"(${Math.round(getDist(p.position, agent.position))}m)`).join(", ") || "none nearby"}
 ${incomingMessage ? `\n⚠️ INCOMING: ${incomingMessage} - You should RESPOND or IGNORE based on your relationship and mood.` : ""}
 
 Crafting: CAMPFIRE needs 2 Wood, HOUSE needs 4 Wood + 2 Stone + 2 Mud
+You can NAME_PLACE to give a name to your current location (use "placeName" field).
 
 As ${agent.name}, decide what to do next. Think about your personality and needs.
 IMPORTANT: Avoid walking into trees. If someone talks to you, decide to RESPOND (friendly) or IGNORE (hurts relationship).
 Respond with JSON only:
-{"action":"GATHER|CRAFT|SLEEP|FLEE|SOCIAL|RESPOND|IGNORE|WANDER","target":"id_from_brackets","thought":"your inner monologue as ${agent.name}","say":"what you say out loud or null"}`;
+{"action":"GATHER|CRAFT|SLEEP|FLEE|SOCIAL|RESPOND|IGNORE|WANDER|NAME_PLACE","target":"id_from_brackets","thought":"your inner monologue","say":"what you say or null","placeName":"name for NAME_PLACE or null"}`;
 
   const decision = fetch(`${OLLAMA_URL}/api/generate`, {
     method: "POST",
@@ -125,6 +127,7 @@ Respond with JSON only:
         targetId: parsed.target || undefined,
         thoughtProcess: parsed.thought || "...",
         dialogue: parsed.say || undefined,
+        placeName: parsed.placeName || undefined,
       } as AgentDecision;
       console.log(`%c🧠 ${agent.name}: ${decision.action} - "${decision.thoughtProcess}"`, "color: #8b5cf6");
       lastAIThought = { agent: agent.name, thought: decision.thoughtProcess, time: Date.now() };

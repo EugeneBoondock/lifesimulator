@@ -52,7 +52,8 @@ export const HumanoidModel: React.FC<HumanoidModelProps> = ({ agent, isSelected,
     }
   });
 
-  const position: [number, number, number] = [agent.position.x, agent.state === AgentState.SLEEPING ? 0.2 : agent.position.y - 0.275, agent.position.z];
+  const baseY = agent.position.y + 0.08;
+  const position: [number, number, number] = [agent.position.x, agent.state === AgentState.SLEEPING ? baseY - 0.05 : baseY, agent.position.z];
   const rotation: [number, number, number] = agent.state === AgentState.SLEEPING ? [-Math.PI / 2, agent.rotation, 0] : [0, agent.rotation, 0];
 
   return (

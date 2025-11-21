@@ -21,6 +21,7 @@ export interface Vector3 {
 export interface AgentNeeds {
   hunger: number;   // 0-100, 100 is full
   energy: number;   // 0-100, 100 is fully rested
+  thirst: number;   // 0-100, 100 is fully hydrated
   social: number;   // 0-100, 100 is socially satisfied
   fun: number;      // 0-100
   health: number;   // 0-100
@@ -77,6 +78,11 @@ export interface Agent {
   currentActionLabel: string;
   chatBubble?: string;
   lastChatTime?: number;
+  leadership?: number; // 0-1 leadership inclination
+  role?: 'LEADER' | 'CITIZEN';
+  equippedTool?: string;
+  feelings?: string[];
+  mood?: string;
   // AI Mind
   aiThoughts: string[];  // Recent internal thoughts from AI
   aiConversations: { with: string; message: string; time: number }[];  // Conversations
@@ -155,6 +161,15 @@ export interface KnowledgeBase {
   };
 }
 
+export interface NamedPlace {
+  id: string;
+  name: string;
+  position: Vector3;
+  namedBy: string;
+  namedAt: number;
+  type: 'LANDMARK' | 'CAMP' | 'GATHERING_SPOT' | 'DANGER_ZONE' | 'HOME';
+}
+
 export interface WorldEvent {
   id: string;
   timestamp: number;
@@ -165,12 +180,18 @@ export interface WorldEvent {
 export type Season = 'SPRING' | 'SUMMER' | 'AUTUMN' | 'WINTER';
 export type Weather = 'CLEAR' | 'CLOUDY' | 'RAIN' | 'STORM' | 'SNOW';
 
+export interface GovernanceState {
+  leaderId: string | null;
+  cohesion: number; // 0-100 scale representing societal cohesion
+}
+
 export interface GameState {
   agents: Agent[];
   buildings: Building[];
   flora: Flora[];
   fauna: Fauna[];
   water: WaterPatch[];
+  places: NamedPlace[];
   knowledge: KnowledgeBase;
   time: number; // Tick count
   dayTime: number; // 0-24 hours
@@ -178,12 +199,14 @@ export interface GameState {
   season: Season;
   weather: Weather;
   logs: WorldEvent[];
+  governance?: GovernanceState;
   paused: boolean;
   selectedAgentId: string | null;
 }
 
 export interface AgentDecision {
-  action: "MOVE" | "TALK" | "WAIT" | "SLEEP" | "CRAFT" | "BUILD" | "INSPECT" | "GATHER" | "TAME" | "ATTACK" | "FLEE" | "SOCIAL" | "RESPOND" | "IGNORE" | "WANDER";
+  action: "MOVE" | "TALK" | "WAIT" | "SLEEP" | "CRAFT" | "BUILD" | "INSPECT" | "GATHER" | "TAME" | "ATTACK" | "FLEE" | "SOCIAL" | "RESPOND" | "IGNORE" | "WANDER" | "NAME_PLACE" | "HUNT" | "DRINK";
+  placeName?: string;
   targetId?: string;
   targetLocation?: { x: number; z: number };
   craftingRecipe?: string;
