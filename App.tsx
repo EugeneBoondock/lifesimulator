@@ -312,8 +312,12 @@ function App() {
               if (target) {
                 const sharedTechs = a.knownTechnologies.filter(t => !target.knownTechnologies.includes(t));
                 if (sharedTechs.length > 0 && Math.random() < 0.2) {
+                  const techToTeach = sharedTechs[Math.floor(Math.random() * sharedTechs.length)];
+                  target.knownTechnologies.push(techToTeach);
                   a.state = AgentState.TEACHING;
-                  a.currentActionLabel = `Teaching ${target.name}`;
+                  a.currentActionLabel = `Teaching ${target.name} about ${techToTeach}`;
+                  target.currentActionLabel = `Learning ${techToTeach} from ${a.name}`;
+                  logs.push(`📚 ${a.name} taught ${target.name} about ${techToTeach}!`);
                   taught = true;
                 }
               }
