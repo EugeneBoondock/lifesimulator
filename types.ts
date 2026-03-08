@@ -1,15 +1,20 @@
-
-// Core Entity Types
-
 export enum AgentState {
   IDLE = 'IDLE',
   MOVING = 'MOVING',
+  GATHERING = 'GATHERING',
+  CRAFTING = 'CRAFTING',
+  BUILDING = 'BUILDING',
   SOCIALIZING = 'SOCIALIZING',
-  WORKING = 'WORKING',
   SLEEPING = 'SLEEPING',
   THINKING = 'THINKING',
   FLEEING = 'FLEEING',
-  FIGHTING = 'FIGHTING'
+  FIGHTING = 'FIGHTING',
+  HUNTING = 'HUNTING',
+  EATING = 'EATING',
+  DRINKING = 'DRINKING',
+  EXPLORING = 'EXPLORING',
+  TEACHING = 'TEACHING',
+  RESEARCHING = 'RESEARCHING'
 }
 
 export interface Vector3 {
@@ -19,29 +24,22 @@ export interface Vector3 {
 }
 
 export interface AgentNeeds {
-  hunger: number;   // 0-100, 100 is full
-  energy: number;   // 0-100, 100 is fully rested
-  thirst: number;   // 0-100, 100 is fully hydrated
-  social: number;   // 0-100, 100 is socially satisfied
-  fun: number;      // 0-100
-  health: number;   // 0-100
-  temperature: number; // 0-100, < 30 is freezing, > 50 is comfortable
+  hunger: number;
+  energy: number;
+  thirst: number;
+  social: number;
+  safety: number;
+  health: number;
+  temperature: number;
+  curiosity: number;
 }
 
-// NEW: The Chemical Brain
 export interface NeuroChemistry {
-  dopamine: number;   // Motivation / Reward seeking (0-100)
-  serotonin: number;  // Mood stability / Contentment (0-100)
-  adrenaline: number; // Fight or Flight / Speed (0-100)
-  oxytocin: number;   // Social bonding / Trust (0-100)
-  cortisol: number;   // Stress / Pain (0-100)
-}
-
-export interface ActionMemory {
-  targetType: string; // e.g., "MUSHROOM_RED", "WOLF"
-  action: string;     // "EAT", "ATTACK"
-  outcome: number;    // -100 to 100 (Negative = Pain/Stress, Positive = Dopamine)
-  confidence: number; // 0-1, how sure they are
+  dopamine: number;
+  serotonin: number;
+  adrenaline: number;
+  oxytocin: number;
+  cortisol: number;
 }
 
 export interface Personality {
@@ -50,91 +48,100 @@ export interface Personality {
   extraversion: number;
   agreeableness: number;
   neuroticism: number;
-  bio: string; 
+  creativity: number;
+  courage: number;
+  bio: string;
 }
 
 export interface Memory {
   timestamp: number;
   description: string;
-  importance: number; 
+  importance: number;
+  type: 'event' | 'discovery' | 'social' | 'danger' | 'landmark';
+}
+
+export interface ActionMemory {
+  targetType: string;
+  action: string;
+  outcome: number;
+  confidence: number;
+}
+
+export type Era = 'PRIMITIVE' | 'STONE_AGE' | 'AGRICULTURAL' | 'BRONZE_AGE' | 'IRON_AGE';
+
+export interface Technology {
+  id: string;
+  name: string;
+  era: Era;
+  description: string;
+  prerequisites: string[];
+  unlocks: string[];
+  discoveryHint: string;
 }
 
 export interface Agent {
   id: string;
   name: string;
   color: string;
+  skinTone: string;
+  markings: string;
   ageDays: number;
-  hairColor?: string;
-  clothesColor?: string;
-  sex?: 'MALE' | 'FEMALE';
-  gender?: string;
+  sex: 'MALE' | 'FEMALE';
   position: Vector3;
-  rotation: number; 
+  rotation: number;
   targetPosition: Vector3 | null;
-  targetId?: string; 
+  targetId?: string;
   state: AgentState;
   needs: AgentNeeds;
-  neuro: NeuroChemistry; // The Brain
-  actionMemories: ActionMemory[]; // Learned experiences
+  neuro: NeuroChemistry;
   personality: Personality;
   memories: Memory[];
-  relationships: Record<string, number>; 
-  inventory: Record<string, number>; 
+  actionMemories: ActionMemory[];
+  relationships: Record<string, number>;
+  inventory: Record<string, number>;
+  knownTechnologies: string[];
   currentActionLabel: string;
   chatBubble?: string;
   lastChatTime?: number;
-  leadership?: number; // 0-1 leadership inclination
-  role?: 'LEADER' | 'CITIZEN';
   equippedTool?: string;
-  caringEggId?: string;
-  feelings?: string[];
-  mood?: string;
-  // AI Mind
-  aiThoughts: string[];  // Recent internal thoughts from AI
-  aiConversations: { with: string; message: string; time: number }[];  // Conversations
-  // Internal Physics
+  feelings: string[];
+  mood: string;
+  aiThoughts: string[];
+  aiConversations: { with: string; message: string; time: number }[];
   velocity: Vector3;
   radius: number;
-  // Health
-  sickness?: 'NONE' | 'COLD' | 'FLU';
-  sicknessDuration?: number;
+  sickness: 'NONE' | 'COLD' | 'FOOD_POISON' | 'INJURY';
+  sicknessDuration: number;
+  skillLevels: Record<string, number>;
 }
 
-export interface Building {
-  id: string;
-  position: Vector3;
-  type: 'CRATE' | 'WALL' | 'PLANT' | 'HOUSE' | 'CAMPFIRE';
-  ownerId: string;
-  scale: number;
-  radius: number; 
-  health: number; // Durability
-  isOnFire?: boolean;
-  inventory?: Record<string, number>;
-}
+export type FloraType =
+  | 'TREE_OAK' | 'TREE_PINE' | 'TREE_BIRCH' | 'TREE_WILLOW'
+  | 'BUSH_BERRY' | 'BUSH_HERB' | 'TALL_GRASS' | 'FLOWER_FIELD'
+  | 'MUSHROOM_RED' | 'MUSHROOM_BROWN' | 'MUSHROOM_GLOW'
+  | 'RESOURCE_ROCK' | 'RESOURCE_FLINT' | 'RESOURCE_CLAY' | 'RESOURCE_COPPER_ORE' | 'RESOURCE_TIN_ORE' | 'RESOURCE_IRON_ORE'
+  | 'FARM_CROP' | 'CACTUS' | 'REED';
 
-// --- NATURE & DISCOVERY ---
+export type FaunaType = 'RABBIT' | 'DEER' | 'BOAR' | 'WOLF' | 'BEAR' | 'FISH' | 'BIRD';
 
-export type FloraType = 'TREE_OAK' | 'TREE_PINE' | 'BUSH_BERRY' | 'MUSHROOM_RED' | 'MUSHROOM_BROWN' | 'RESOURCE_ROCK' | 'RESOURCE_MUD' | 'RESOURCE_BONE' | 'FARM_CROP';
-export type FaunaType = 'RABBIT' | 'CHICKEN' | 'WOLF' | 'BEAR';
-export type WaterKind = 'RIVER' | 'PUDDLE';
+export type WaterKind = 'RIVER' | 'LAKE' | 'PUDDLE';
 
 export interface Flora {
   id: string;
   type: FloraType;
   position: Vector3;
   scale: number;
-  growthStage?: number; // For farm crops: 0=seedling,1=growing,2=ripe
-  growthTimer?: number; // Ticks spent growing
-  regrowTicks?: number; // Time to regrow fully
+  growthStage?: number;
+  growthTimer?: number;
   isEdible: boolean;
   isPoisonous: boolean;
   nutritionValue: number;
-  resourceYield?: string; 
-  resourcesLeft?: number; // Finite resources
+  resourceYield?: string;
+  resourcesLeft?: number;
   maxResources?: number;
   radius: number;
   isOnFire?: boolean;
-  health?: number;
+  health: number;
 }
 
 export interface Fauna {
@@ -142,15 +149,19 @@ export interface Fauna {
   type: FaunaType;
   position: Vector3;
   rotation: number;
-  state: 'IDLE' | 'MOVING' | 'FLEEING' | 'HUNTING' | 'FOLLOWING';
+  state: 'IDLE' | 'MOVING' | 'FLEEING' | 'HUNTING' | 'GRAZING' | 'SLEEPING';
   targetPosition: Vector3 | null;
-  targetId?: string; 
   isAggressive: boolean;
   isTamed: boolean;
   ownerId?: string;
   health: number;
+  maxHealth: number;
   radius: number;
-  meat?: number;
+  meat: number;
+  hide: number;
+  speed: number;
+  fleeDistance: number;
+  packId?: string;
 }
 
 export interface WaterPatch {
@@ -161,15 +172,37 @@ export interface WaterPatch {
   length?: number;
   rotation?: number;
   ttl?: number;
+  hasFish?: boolean;
 }
 
-// Global Knowledge
-export interface KnowledgeBase {
-  [key: string]: {
-    customName: string;
-    discoveredBy: string;
-    description: string;
-  };
+export type BuildingType =
+  | 'CAMPFIRE' | 'LEAN_TO' | 'HUT' | 'STONE_HOUSE'
+  | 'STORAGE_PIT' | 'DRYING_RACK' | 'WORKSHOP'
+  | 'FARM_PLOT' | 'WELL' | 'WALL' | 'SMELTER'
+  | 'TOTEM' | 'GRANARY';
+
+export interface Building {
+  id: string;
+  position: Vector3;
+  type: BuildingType;
+  ownerId: string;
+  scale: number;
+  radius: number;
+  health: number;
+  maxHealth: number;
+  isOnFire?: boolean;
+  inventory?: Record<string, number>;
+  buildProgress: number;
+  rotation?: number;
+}
+
+export interface Discovery {
+  id: string;
+  techId: string;
+  discoveredBy: string;
+  discoveredAt: number;
+  day: number;
+  description: string;
 }
 
 export interface NamedPlace {
@@ -178,30 +211,19 @@ export interface NamedPlace {
   position: Vector3;
   namedBy: string;
   namedAt: number;
-  type: 'LANDMARK' | 'CAMP' | 'GATHERING_SPOT' | 'DANGER_ZONE' | 'HOME';
+  type: 'LANDMARK' | 'SETTLEMENT' | 'RESOURCE_SITE' | 'DANGER_ZONE' | 'SACRED';
 }
 
 export interface WorldEvent {
   id: string;
   timestamp: number;
-  type: 'SYSTEM' | 'AGENT' | 'DIALOGUE' | 'DISCOVERY' | 'DANGER';
+  type: 'SYSTEM' | 'AGENT' | 'DIALOGUE' | 'DISCOVERY' | 'DANGER' | 'ERA' | 'DEATH' | 'BIRTH';
   message: string;
+  importance?: number;
 }
 
 export type Season = 'SPRING' | 'SUMMER' | 'AUTUMN' | 'WINTER';
-export type Weather = 'CLEAR' | 'CLOUDY' | 'RAIN' | 'STORM' | 'SNOW';
-
-export interface GovernanceState {
-  leaderId: string | null;
-  cohesion: number; // 0-100 scale representing societal cohesion
-}
-
-export interface Egg {
-  id: string;
-  position: Vector3;
-  hatchAt: number;
-  parents: { id: string; color: string; hairColor?: string; clothesColor?: string }[];
-}
+export type Weather = 'CLEAR' | 'CLOUDY' | 'RAIN' | 'STORM' | 'SNOW' | 'FOG' | 'HEAT_WAVE';
 
 export interface GameState {
   agents: Agent[];
@@ -210,25 +232,51 @@ export interface GameState {
   fauna: Fauna[];
   water: WaterPatch[];
   places: NamedPlace[];
-  eggs: Egg[];
-  knowledge: KnowledgeBase;
-  time: number; // Tick count
-  dayTime: number; // 0-24 hours
-  day: number; // Day count
+  discoveries: Discovery[];
+  knowledge: Record<string, Technology>;
+  globalTechsDiscovered: string[];
+  currentEra: Era;
+  time: number;
+  dayTime: number;
+  day: number;
   season: Season;
   weather: Weather;
   logs: WorldEvent[];
-  governance?: GovernanceState;
   paused: boolean;
+  speed: number;
   selectedAgentId: string | null;
+  populationPeak: number;
 }
 
 export interface AgentDecision {
-  action: "MOVE" | "TALK" | "WAIT" | "SLEEP" | "CRAFT" | "BUILD" | "INSPECT" | "GATHER" | "TAME" | "ATTACK" | "FLEE" | "SOCIAL" | "RESPOND" | "IGNORE" | "WANDER" | "NAME_PLACE" | "HUNT" | "DRINK";
-  placeName?: string;
+  action: string;
   targetId?: string;
   targetLocation?: { x: number; z: number };
-  craftingRecipe?: string;
+  craftItem?: string;
+  buildType?: string;
   thoughtProcess: string;
   dialogue?: string;
+  placeName?: string;
+  discoveryAttempt?: string;
+}
+
+export interface CraftingRecipe {
+  id: string;
+  name: string;
+  ingredients: Record<string, number>;
+  result: string;
+  resultCount: number;
+  requiredTech?: string;
+  requiredBuilding?: BuildingType;
+  craftTime: number;
+}
+
+export interface BuildingRecipe {
+  type: BuildingType;
+  name: string;
+  ingredients: Record<string, number>;
+  requiredTech?: string;
+  buildTime: number;
+  health: number;
+  radius: number;
 }

@@ -1,49 +1,71 @@
-# Aetheria Life Sim
+# Aetheria AI Life Simulator
 
-A 3D AI-powered life simulation built with React, Three.js, and Google Gemini AI.
+A 3D AI-powered life simulation where unique creatures called "Aetheri" start with nothing and discover technologies to advance through 5 eras of civilization.
 
 ## Tech Stack
 
 - **Frontend**: React 18 + TypeScript
 - **3D Rendering**: Three.js via @react-three/fiber and @react-three/drei
-- **AI**: Google Gemini AI (@google/genai)
-- **Styling**: Tailwind CSS
+- **AI**: DeepSeek API (OpenAI-compatible) via Express backend proxy
+- **Styling**: Tailwind CSS + glassmorphism UI
 - **Build Tool**: Vite 5
 
-## Project Structure
+## Architecture
 
-- `App.tsx` - Main application entry point
-- `components/` - React components
-  - `HumanoidModel.tsx` - 3D humanoid character model
-  - `UIOverlay.tsx` - HUD and UI overlay
-  - `World3D.tsx` - 3D world scene
-- `services/` - AI and engine services
-  - `aiMindEngine.ts` - AI mind coordination
-  - `audioService.ts` - Audio handling
-  - `behaviorEngine.ts` - Behavior logic
-  - `geminiService.ts` - Gemini AI integration
-  - `memoryStorage.ts` - Memory persistence
-  - `neuroEngine.ts` - Neural simulation
-  - `ollamaService.ts` - Ollama local AI integration
-  - `subconsciousEngine.ts` - Subconscious AI processing
-- `constants.ts` - App constants
-- `types.ts` - TypeScript type definitions
+### Frontend (port 5000)
+- **App.tsx** - Main game loop, state management, physics, collision detection
+- **components/World3D.tsx** - 3D canvas with terrain, lighting, weather, water, day/night cycle
+- **components/Environment.tsx** - Flora (20 types), fauna (7 types), buildings (13 types) 3D models
+- **components/CreatureModel.tsx** - Aetheri creature 3D model with animations
+- **components/UIOverlay.tsx** - Glassmorphism HUD: stats, tech tree, agent inspector, event log
+
+### Backend (port 3001)
+- **server/index.ts** - Express server proxying DeepSeek API calls
+  - POST `/api/ai/decide` - Agent decision making
+  - POST `/api/ai/batch` - Batch decisions
+  - GET `/api/health` - Health check
+
+### Services
+- **services/deepseekService.ts** - AI decision engine with context-aware prompts, rate limiting
+- **services/worldEngine.ts** - Game simulation: needs, combat, crafting, building, tech discovery
+- **services/memoryStorage.ts** - IndexedDB persistence for agent memories
+
+### Core Data
+- **types.ts** - Full type system (Agent, Era, Technology, Flora, Fauna, Building, etc.)
+- **constants.ts** - Tech tree (15 techs), crafting recipes, building recipes, world generation
+
+## Game Systems
+
+### Technology Tree (5 Eras)
+1. **Primitive** (The Awakening) - Starting era, no technologies
+2. **Stone Age** (Age of Stone) - Fire, Stone Knapping, Cooking, Shelter, Spear Making, Weaving
+3. **Agricultural** (Age of Growth) - Pottery, Agriculture, Animal Husbandry
+4. **Bronze Age** (Age of Bronze) - Masonry, Copper Smelting, Bronze Working, Writing
+5. **Iron Age** (Age of Iron) - Iron Smelting, Engineering
+
+### Agent AI
+- DeepSeek API provides context-aware decisions
+- Agents consider: needs (hunger, thirst, energy, temperature, safety, social, curiosity), personality traits, memories, nearby resources/threats
+- Technology discovery through experimentation (RESEARCH action)
+- Social interactions, teaching, and knowledge sharing
 
 ## Environment Variables
 
-- `GEMINI_API_KEY` - Google Gemini API key (required for AI features)
+- `DEEPSEEK_API_KEY` - DeepSeek API key (required)
 
 ## Development
 
 ```bash
-npm install
-npm run dev
+npm run dev       # Starts backend (port 3001) + frontend (port 5000)
+npm run dev:server  # Backend only
+npm run dev:frontend  # Frontend only
 ```
 
-The app runs on port 5000.
+Vite proxies `/api/*` requests to the backend server.
 
 ## Deployment
 
-Configured as a static site deployment:
+Static site deployment:
 - Build: `npm run build`
 - Output: `dist/`
+- Backend must be deployed separately for AI features

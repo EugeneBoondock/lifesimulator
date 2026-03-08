@@ -3,14 +3,17 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev:frontend": "vite",
+    "dev:server": "tsx server/index.ts",
+    "dev": "tsx server/index.ts & sleep 3 && vite",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "latest",
     "@react-three/drei": "9.105.6",
     "@react-three/fiber": "8.16.6",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "lucide-react": "0.378.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -18,14 +21,17 @@
     "uuid": "9.0.1"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.14.2",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@types/node": "^20.14.2",
     "@types/three": "^0.164.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
+    "tsx": "^4.21.0",
     "typescript": "^5.5.3",
     "vite": "^5.3.4"
   }

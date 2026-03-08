@@ -1,389 +1,442 @@
-import { Agent, AgentState, Flora, Fauna, FaunaType, Season, WaterPatch } from "./types";
+import { Agent, AgentState, Flora, Fauna, FaunaType, Season, WaterPatch, Technology, CraftingRecipe, BuildingRecipe, Era } from "./types";
 
-export const WORLD_SIZE = 150;
-export const TICK_RATE_MS = 1000; 
-export const DAY_LENGTH_TICKS = 2400; 
-export const SEASON_LENGTH_DAYS = 3; // Short seasons for demo
-export const MAX_INVENTORY_SIZE = 6;
+export const WORLD_SIZE = 160;
+export const TICK_RATE_MS = 800;
+export const DAY_LENGTH_TICKS = 2400;
+export const SEASON_LENGTH_DAYS = 5;
+export const MAX_INVENTORY_SIZE = 12;
 
-export const CRAFTING_RECIPES = {
-  'CAMPFIRE': { 'WOOD': 2 },
-  'HOUSE': { 'WOOD': 4, 'STONE': 2, 'MUD': 2 },
-  'SPEAR': { 'WOOD': 1, 'STONE': 1 },
-  'STONE_AXE': { 'WOOD': 1, 'STONE': 2 }
+export const ERA_ORDER: Era[] = ['PRIMITIVE', 'STONE_AGE', 'AGRICULTURAL', 'BRONZE_AGE', 'IRON_AGE'];
+
+export const ERA_NAMES: Record<Era, string> = {
+  PRIMITIVE: 'The Awakening',
+  STONE_AGE: 'Age of Stone',
+  AGRICULTURAL: 'Age of Growth',
+  BRONZE_AGE: 'Age of Bronze',
+  IRON_AGE: 'Age of Iron'
 };
 
-export const SYSTEM_INSTRUCTION = `You are an autonomous agent in a survival simulation game.
-Your goal is to survive and thrive. You have physical needs (Hunger, Energy, Temperature, Health) and psychological drives (Social, Fun).
-You react to your neuro-chemical state (Dopamine, Serotonin, Adrenaline, Oxytocin, Cortisol).
-Evaluate your surroundings (Flora, Fauna, Buildings) and your internal state to decide on the best next action.
-Prioritize survival (eating, sleeping, warmth) but also engage in social activities and long-term goals like building shelter.`;
-
-export const SEASON_PROPERTIES: Record<Season, { tempMod: number, colorMod: string }> = {
-  'SPRING': { tempMod: 0, colorMod: '#4caf50' },
-  'SUMMER': { tempMod: 15, colorMod: '#22c55e' },
-  'AUTUMN': { tempMod: -5, colorMod: '#eab308' },
-  'WINTER': { tempMod: -20, colorMod: '#cbd5e1' }
-};
-
-// Shared Terrain Logic for Biome detection
-export const getTerrainHeight = (x: number, z: number) => {
-    const dist = Math.sqrt(x*x + z*z);
-    
-    // Layer 1: Base Low Frequency (Broad rolling hills)
-    let h = Math.sin(x * 0.04) * Math.cos(z * 0.04) * 3.0;
-    
-    // Layer 2: Medium Frequency (Local variation)
-    h += Math.sin(x * 0.1 + 1.2) * Math.cos(z * 0.1 + 2.5) * 1.0;
-    
-    // Layer 3: High Frequency (Detail roughness)
-    h += Math.sin(x * 0.3) * Math.cos(z * 0.25) * 0.2;
-    
-    // Mountains on outskirts - push them further out
-    if (dist > 60) h += Math.pow((dist - 60) * 0.15, 2.5);
-    
-    // Flatten center (Drylands/Spawn) - larger flat area
-    if (dist < 45) {
-        const flattenFactor = Math.max(0, Math.min(1, (dist - 25) / 20));
-        h *= flattenFactor;
-    }
-    
-    return h;
-};
-
-export const CHAT_TEMPLATES = {
-  GREETING: ["Hello there!", "Good day.", "Hi!", "Stay safe out there.", "Nice to see you."],
-  GOSSIP: ["Have you seen the wolves?", "Elara is working hard today.", "I heard a weird noise.", "The weather is changing.", "I saw a bear near the trees."],
-  PLANNING: ["We should build a village.", "I need more wood.", "Let's gather food together.", "We need more fire.", "This place needs a house."],
-  WORK: ["Hard work pays off.", "Building takes time.", "I need more resources.", "This is tiring.", "Almost done...", "Chopping wood..."],
-  DANGER: ["Did you hear that?", "Wolves nearby!", "Stay close to the fire.", "It's too dark.", "I'm scared.", "Run!"],
-  TIRED: ["I need some sleep.", "So exhausted...", "Can't keep my eyes open.", "Bed time.", "Yawn..."],
-  HUNGRY: ["Starving...", "Need food.", "seen any berries?", "My stomach rumbles.", "Food...", "So hungry."],
-  FRIENDLY: ["Good to see you.", "We make a good team.", "Let's survive together.", "How are you holding up?", "I trust you."],
-  PANIC: ["RUN!", "It's attacking me!", "Help!", "I don't want to die!", "AAAAHH!"],
-  DISCOVERY: ["What is this?", "Looks interesting.", "I wonder if I can eat this?", "A new discovery.", "Shiny."],
-  BUILDING: ["I need shelter.", "This will keep me safe.", "Laying the foundation.", "A home of my own.", "Construction complete."]
-};
-
-export const INITIAL_AGENTS: Agent[] = [
-  {
-    id: 'npc_1',
-    name: 'Elara',
-    color: '#ef4444', 
-    hairColor: '#f97316',
-    clothesColor: '#ef4444',
-    sex: 'FEMALE',
-    ageDays: 26 * 365,
-    position: { x: -5, y: 0, z: -5 },
-    rotation: 0,
-    targetPosition: null,
-    state: AgentState.IDLE,
-    needs: { hunger: 80, thirst: 80, energy: 90, social: 50, fun: 60, health: 100, temperature: 70 },
-    neuro: { dopamine: 50, serotonin: 80, adrenaline: 10, oxytocin: 60, cortisol: 10 },
-    actionMemories: [],
-    personality: {
-      openness: 0.8,
-      conscientiousness: 0.6,
-      extraversion: 0.9,
-      agreeableness: 0.7,
-      neuroticism: 0.3,
-      bio: "An energetic leader."
-    },
-    memories: [],
-    leadership: 0.8,
-    role: 'LEADER',
-    feelings: [],
-    mood: 'neutral',
-    relationships: { 'npc_2': 50, 'npc_3': 50 },
-    inventory: {},
-    currentActionLabel: 'Initializing...',
-    aiThoughts: [],
-    aiConversations: [],
-    velocity: {x:0,y:0,z:0},
-    radius: 0.5,
-    sickness: 'NONE'
+export const TECHNOLOGIES: Record<string, Technology> = {
+  FIRE: {
+    id: 'FIRE', name: 'Fire', era: 'PRIMITIVE',
+    description: 'The mastery of flame for warmth, cooking, and light.',
+    prerequisites: [], unlocks: ['COOKING', 'TORCH'],
+    discoveryHint: 'Strike flint near dry wood...'
   },
-  {
-    id: 'npc_2',
-    name: 'Kael',
-    color: '#3b82f6', 
-    hairColor: '#9ca3af',
-    clothesColor: '#3b82f6',
-    ageDays: 32 * 365,
-    position: { x: 5, y: 0, z: 5 },
-    rotation: Math.PI,
-    targetPosition: null,
-    state: AgentState.IDLE,
-    needs: { hunger: 60, thirst: 70, energy: 70, social: 30, fun: 40, health: 100, temperature: 70 },
-    neuro: { dopamine: 70, serotonin: 50, adrenaline: 20, oxytocin: 30, cortisol: 20 },
-    actionMemories: [],
-    personality: {
-      openness: 0.9,
-      conscientiousness: 0.8,
-      extraversion: 0.2,
-      agreeableness: 0.5,
-      neuroticism: 0.4,
-      bio: "Cautious and analytical."
-    },
-    memories: [],
-    leadership: 0.3,
-    role: 'CITIZEN',
-    feelings: [],
-    mood: 'neutral',
-    sex: 'MALE',
-    relationships: { 'npc_1': 50, 'npc_3': 40 },
-    inventory: {},
-    currentActionLabel: 'Initializing...',
-    aiThoughts: [],
-    aiConversations: [],
-    velocity: {x:0,y:0,z:0},
-    radius: 0.5,
-    sickness: 'NONE'
+  STONE_KNAPPING: {
+    id: 'STONE_KNAPPING', name: 'Stone Knapping', era: 'STONE_AGE',
+    description: 'Shaping stones into useful tools by striking them.',
+    prerequisites: [], unlocks: ['STONE_AXE', 'STONE_KNIFE'],
+    discoveryHint: 'Hit rocks together...'
   },
-  {
-    id: 'npc_3',
-    name: 'Thorne',
-    color: '#22c55e', 
-    hairColor: '#0f172a',
-    clothesColor: '#22c55e',
-    ageDays: 19 * 365,
-    position: { x: 0, y: 0, z: 0 },
-    rotation: Math.PI / 2,
-    targetPosition: null,
-    state: AgentState.IDLE,
-    needs: { hunger: 50, thirst: 75, energy: 50, social: 80, fun: 20, health: 100, temperature: 70 },
-    neuro: { dopamine: 40, serotonin: 60, adrenaline: 0, oxytocin: 20, cortisol: 0 },
-    actionMemories: [],
-    personality: {
-      openness: 0.4,
-      conscientiousness: 0.9,
-      extraversion: 0.5,
-      agreeableness: 0.2,
-      neuroticism: 0.6,
-      bio: "Survivalist."
-    },
-    memories: [],
-    leadership: 0.5,
-    role: 'CITIZEN',
-    feelings: [],
-    mood: 'neutral',
-    sex: 'MALE',
-    relationships: { 'npc_1': 50, 'npc_2': 40 },
-    inventory: {},
-    currentActionLabel: 'Initializing...',
-    aiThoughts: [],
-    aiConversations: [],
-    velocity: {x:0,y:0,z:0},
-    radius: 0.5,
-    sickness: 'NONE'
+  COOKING: {
+    id: 'COOKING', name: 'Cooking', era: 'STONE_AGE',
+    description: 'Using fire to prepare food, making it safer and more nutritious.',
+    prerequisites: ['FIRE'], unlocks: ['COOKED_MEAT'],
+    discoveryHint: 'Place raw food near fire...'
   },
-  {
-    id: 'npc_4',
-    name: 'Lyra',
-    color: '#a855f7',
-    hairColor: '#fcd34d',
-    clothesColor: '#a855f7',
-    sex: 'FEMALE',
-    ageDays: 24 * 365,
-    position: { x: 8, y: 0, z: -3 },
-    rotation: Math.PI / 4,
-    targetPosition: null,
-    state: AgentState.IDLE,
-    needs: { hunger: 70, thirst: 85, energy: 80, social: 60, fun: 50, health: 100, temperature: 70 },
-    neuro: { dopamine: 60, serotonin: 70, adrenaline: 5, oxytocin: 50, cortisol: 15 },
-    actionMemories: [],
-    personality: {
-      openness: 0.7,
-      conscientiousness: 0.5,
-      extraversion: 0.8,
-      agreeableness: 0.8,
-      neuroticism: 0.4,
-      bio: "Curious and friendly."
-    },
-    memories: [],
-    leadership: 0.4,
-    role: 'CITIZEN',
-    feelings: [],
-    mood: 'neutral',
-    relationships: { 'npc_1': 40, 'npc_2': 35, 'npc_3': 30 },
-    inventory: {},
-    currentActionLabel: 'Initializing...',
-    aiThoughts: [],
-    aiConversations: [],
-    velocity: {x:0,y:0,z:0},
-    radius: 0.5,
-    sickness: 'NONE'
+  SHELTER_BUILDING: {
+    id: 'SHELTER_BUILDING', name: 'Shelter Building', era: 'STONE_AGE',
+    description: 'Constructing basic shelters from natural materials.',
+    prerequisites: ['STONE_KNAPPING'], unlocks: ['LEAN_TO', 'HUT'],
+    discoveryHint: 'Gather enough wood and figure out how to stack it...'
   },
-  {
-    id: 'npc_5',
-    name: 'Darius',
-    color: '#f59e0b',
-    hairColor: '#78350f',
-    clothesColor: '#f59e0b',
-    sex: 'MALE',
-    ageDays: 29 * 365,
-    position: { x: -8, y: 0, z: 4 },
-    rotation: -Math.PI / 3,
-    targetPosition: null,
-    state: AgentState.IDLE,
-    needs: { hunger: 65, thirst: 70, energy: 75, social: 40, fun: 35, health: 100, temperature: 70 },
-    neuro: { dopamine: 55, serotonin: 55, adrenaline: 15, oxytocin: 35, cortisol: 25 },
-    actionMemories: [],
-    personality: {
-      openness: 0.5,
-      conscientiousness: 0.7,
-      extraversion: 0.4,
-      agreeableness: 0.6,
-      neuroticism: 0.5,
-      bio: "Strong and reliable."
-    },
-    memories: [],
-    leadership: 0.6,
-    role: 'CITIZEN',
-    feelings: [],
-    mood: 'neutral',
-    relationships: { 'npc_1': 45, 'npc_2': 30, 'npc_3': 35, 'npc_4': 40 },
-    inventory: {},
-    currentActionLabel: 'Initializing...',
-    aiThoughts: [],
-    aiConversations: [],
-    velocity: {x:0,y:0,z:0},
-    radius: 0.5,
-    sickness: 'NONE'
+  SPEAR_MAKING: {
+    id: 'SPEAR_MAKING', name: 'Spear Making', era: 'STONE_AGE',
+    description: 'Crafting pointed weapons for hunting.',
+    prerequisites: ['STONE_KNAPPING'], unlocks: ['SPEAR'],
+    discoveryHint: 'Attach sharp stone to a long stick...'
   },
-  {
-    id: 'npc_6',
-    name: 'Mira',
-    color: '#ec4899',
-    hairColor: '#1e293b',
-    clothesColor: '#ec4899',
-    sex: 'FEMALE',
-    ageDays: 22 * 365,
-    position: { x: 3, y: 0, z: 7 },
-    rotation: Math.PI,
-    targetPosition: null,
-    state: AgentState.IDLE,
-    needs: { hunger: 75, thirst: 80, energy: 85, social: 70, fun: 55, health: 100, temperature: 70 },
-    neuro: { dopamine: 65, serotonin: 75, adrenaline: 5, oxytocin: 55, cortisol: 10 },
-    actionMemories: [],
-    personality: {
-      openness: 0.9,
-      conscientiousness: 0.4,
-      extraversion: 0.7,
-      agreeableness: 0.9,
-      neuroticism: 0.2,
-      bio: "Creative and kind."
-    },
-    memories: [],
-    leadership: 0.3,
-    role: 'CITIZEN',
-    feelings: [],
-    mood: 'neutral',
-    relationships: { 'npc_1': 50, 'npc_2': 40, 'npc_3': 35, 'npc_4': 45, 'npc_5': 30 },
-    inventory: {},
-    currentActionLabel: 'Initializing...',
-    aiThoughts: [],
-    aiConversations: [],
-    velocity: {x:0,y:0,z:0},
-    radius: 0.5,
-    sickness: 'NONE'
+  WEAVING: {
+    id: 'WEAVING', name: 'Weaving', era: 'STONE_AGE',
+    description: 'Creating baskets and simple textiles from plant fibers.',
+    prerequisites: ['STONE_KNAPPING'], unlocks: ['BASKET', 'ROPE'],
+    discoveryHint: 'Twist plant fibers together...'
+  },
+  POTTERY: {
+    id: 'POTTERY', name: 'Pottery', era: 'AGRICULTURAL',
+    description: 'Shaping clay into vessels and firing them.',
+    prerequisites: ['FIRE', 'STONE_KNAPPING'], unlocks: ['CLAY_POT', 'STORAGE'],
+    discoveryHint: 'Shape clay and expose to fire...'
+  },
+  AGRICULTURE: {
+    id: 'AGRICULTURE', name: 'Agriculture', era: 'AGRICULTURAL',
+    description: 'Growing food intentionally from seeds.',
+    prerequisites: ['STONE_KNAPPING'], unlocks: ['FARM_PLOT', 'SEEDS'],
+    discoveryHint: 'Notice that dropped seeds grow into plants...'
+  },
+  ANIMAL_HUSBANDRY: {
+    id: 'ANIMAL_HUSBANDRY', name: 'Animal Husbandry', era: 'AGRICULTURAL',
+    description: 'Taming and breeding animals for food and labor.',
+    prerequisites: ['AGRICULTURE'], unlocks: ['TAME_ADVANCED'],
+    discoveryHint: 'Feed and befriend wild animals repeatedly...'
+  },
+  MASONRY: {
+    id: 'MASONRY', name: 'Masonry', era: 'BRONZE_AGE',
+    description: 'Building with shaped stone blocks.',
+    prerequisites: ['SHELTER_BUILDING', 'STONE_KNAPPING'], unlocks: ['STONE_HOUSE', 'WALL'],
+    discoveryHint: 'Stack shaped stones to build stronger structures...'
+  },
+  COPPER_SMELTING: {
+    id: 'COPPER_SMELTING', name: 'Copper Smelting', era: 'BRONZE_AGE',
+    description: 'Extracting metal from ore using extreme heat.',
+    prerequisites: ['FIRE', 'POTTERY'], unlocks: ['COPPER_TOOLS', 'SMELTER'],
+    discoveryHint: 'Heat copper ore in a very hot fire...'
+  },
+  BRONZE_WORKING: {
+    id: 'BRONZE_WORKING', name: 'Bronze Working', era: 'BRONZE_AGE',
+    description: 'Combining copper and tin to create bronze.',
+    prerequisites: ['COPPER_SMELTING'], unlocks: ['BRONZE_AXE', 'BRONZE_SWORD'],
+    discoveryHint: 'Mix copper and tin in the smelter...'
+  },
+  WRITING: {
+    id: 'WRITING', name: 'Writing', era: 'BRONZE_AGE',
+    description: 'Recording knowledge in permanent form.',
+    prerequisites: ['POTTERY'], unlocks: ['TOTEM', 'KNOWLEDGE_SHARE'],
+    discoveryHint: 'Mark clay tablets with symbols...'
+  },
+  IRON_SMELTING: {
+    id: 'IRON_SMELTING', name: 'Iron Smelting', era: 'IRON_AGE',
+    description: 'Working with iron ore to create strong tools.',
+    prerequisites: ['BRONZE_WORKING'], unlocks: ['IRON_TOOLS', 'IRON_SWORD'],
+    discoveryHint: 'Smelt iron ore at very high temperatures...'
+  },
+  ENGINEERING: {
+    id: 'ENGINEERING', name: 'Engineering', era: 'IRON_AGE',
+    description: 'Advanced construction techniques.',
+    prerequisites: ['MASONRY', 'BRONZE_WORKING'], unlocks: ['GRANARY', 'AQUEDUCT'],
+    discoveryHint: 'Plan and build complex structures...'
   }
-];
+};
+
+export const CRAFTING_RECIPES: Record<string, CraftingRecipe> = {
+  STONE_AXE: {
+    id: 'STONE_AXE', name: 'Stone Axe',
+    ingredients: { STONE: 2, STICK: 1 },
+    result: 'STONE_AXE', resultCount: 1,
+    requiredTech: 'STONE_KNAPPING', craftTime: 3
+  },
+  STONE_KNIFE: {
+    id: 'STONE_KNIFE', name: 'Stone Knife',
+    ingredients: { STONE: 1, FLINT: 1 },
+    result: 'STONE_KNIFE', resultCount: 1,
+    requiredTech: 'STONE_KNAPPING', craftTime: 2
+  },
+  SPEAR: {
+    id: 'SPEAR', name: 'Spear',
+    ingredients: { STICK: 2, FLINT: 1 },
+    result: 'SPEAR', resultCount: 1,
+    requiredTech: 'SPEAR_MAKING', craftTime: 3
+  },
+  BASKET: {
+    id: 'BASKET', name: 'Basket',
+    ingredients: { FIBER: 3 },
+    result: 'BASKET', resultCount: 1,
+    requiredTech: 'WEAVING', craftTime: 4
+  },
+  ROPE: {
+    id: 'ROPE', name: 'Rope',
+    ingredients: { FIBER: 2 },
+    result: 'ROPE', resultCount: 1,
+    requiredTech: 'WEAVING', craftTime: 2
+  },
+  CLAY_POT: {
+    id: 'CLAY_POT', name: 'Clay Pot',
+    ingredients: { CLAY: 2 },
+    result: 'CLAY_POT', resultCount: 1,
+    requiredTech: 'POTTERY', requiredBuilding: 'CAMPFIRE', craftTime: 5
+  },
+  COOKED_MEAT: {
+    id: 'COOKED_MEAT', name: 'Cooked Meat',
+    ingredients: { RAW_MEAT: 1 },
+    result: 'COOKED_MEAT', resultCount: 1,
+    requiredTech: 'COOKING', requiredBuilding: 'CAMPFIRE', craftTime: 2
+  },
+  TORCH: {
+    id: 'TORCH', name: 'Torch',
+    ingredients: { STICK: 1, FIBER: 1 },
+    result: 'TORCH', resultCount: 1,
+    requiredTech: 'FIRE', craftTime: 1
+  },
+  COPPER_INGOT: {
+    id: 'COPPER_INGOT', name: 'Copper Ingot',
+    ingredients: { COPPER_ORE: 2 },
+    result: 'COPPER_INGOT', resultCount: 1,
+    requiredTech: 'COPPER_SMELTING', requiredBuilding: 'SMELTER', craftTime: 6
+  },
+  BRONZE_AXE: {
+    id: 'BRONZE_AXE', name: 'Bronze Axe',
+    ingredients: { COPPER_INGOT: 2, TIN_ORE: 1, STICK: 1 },
+    result: 'BRONZE_AXE', resultCount: 1,
+    requiredTech: 'BRONZE_WORKING', requiredBuilding: 'SMELTER', craftTime: 8
+  }
+};
+
+export const BUILDING_RECIPES: Record<string, BuildingRecipe> = {
+  CAMPFIRE: {
+    type: 'CAMPFIRE', name: 'Campfire',
+    ingredients: { WOOD: 3, STONE: 1 },
+    requiredTech: 'FIRE', buildTime: 2,
+    health: 50, radius: 1.0
+  },
+  LEAN_TO: {
+    type: 'LEAN_TO', name: 'Lean-To Shelter',
+    ingredients: { WOOD: 5, STICK: 3 },
+    requiredTech: 'SHELTER_BUILDING', buildTime: 5,
+    health: 80, radius: 1.5
+  },
+  HUT: {
+    type: 'HUT', name: 'Hut',
+    ingredients: { WOOD: 8, STICK: 4, CLAY: 3 },
+    requiredTech: 'SHELTER_BUILDING', buildTime: 10,
+    health: 150, radius: 2.0
+  },
+  STORAGE_PIT: {
+    type: 'STORAGE_PIT', name: 'Storage Pit',
+    ingredients: { STONE: 3, WOOD: 2 },
+    requiredTech: 'STONE_KNAPPING', buildTime: 3,
+    health: 100, radius: 1.0
+  },
+  DRYING_RACK: {
+    type: 'DRYING_RACK', name: 'Drying Rack',
+    ingredients: { WOOD: 4, ROPE: 2 },
+    requiredTech: 'WEAVING', buildTime: 3,
+    health: 60, radius: 1.2
+  },
+  WORKSHOP: {
+    type: 'WORKSHOP', name: 'Workshop',
+    ingredients: { WOOD: 6, STONE: 4 },
+    requiredTech: 'STONE_KNAPPING', buildTime: 8,
+    health: 120, radius: 2.0
+  },
+  FARM_PLOT: {
+    type: 'FARM_PLOT', name: 'Farm Plot',
+    ingredients: { WOOD: 2, STONE: 1 },
+    requiredTech: 'AGRICULTURE', buildTime: 3,
+    health: 50, radius: 1.5
+  },
+  STONE_HOUSE: {
+    type: 'STONE_HOUSE', name: 'Stone House',
+    ingredients: { STONE: 10, WOOD: 6, CLAY: 4 },
+    requiredTech: 'MASONRY', buildTime: 15,
+    health: 300, radius: 2.5
+  },
+  SMELTER: {
+    type: 'SMELTER', name: 'Smelter',
+    ingredients: { STONE: 8, CLAY: 6 },
+    requiredTech: 'COPPER_SMELTING', buildTime: 12,
+    health: 200, radius: 1.5
+  },
+  WALL: {
+    type: 'WALL', name: 'Stone Wall',
+    ingredients: { STONE: 4 },
+    requiredTech: 'MASONRY', buildTime: 4,
+    health: 250, radius: 0.5
+  },
+  TOTEM: {
+    type: 'TOTEM', name: 'Knowledge Totem',
+    ingredients: { WOOD: 3, STONE: 2 },
+    requiredTech: 'WRITING', buildTime: 6,
+    health: 100, radius: 0.6
+  },
+  GRANARY: {
+    type: 'GRANARY', name: 'Granary',
+    ingredients: { STONE: 6, WOOD: 8, CLAY: 4 },
+    requiredTech: 'ENGINEERING', buildTime: 14,
+    health: 250, radius: 2.0
+  },
+  WELL: {
+    type: 'WELL', name: 'Well',
+    ingredients: { STONE: 6, WOOD: 3 },
+    requiredTech: 'MASONRY', buildTime: 8,
+    health: 200, radius: 1.0
+  }
+};
+
+export const SEASON_PROPERTIES: Record<Season, { tempMod: number, growthMod: number, colorHex: number }> = {
+  'SPRING': { tempMod: 0, growthMod: 1.2, colorHex: 0x4caf50 },
+  'SUMMER': { tempMod: 15, growthMod: 1.5, colorHex: 0x22c55e },
+  'AUTUMN': { tempMod: -5, growthMod: 0.5, colorHex: 0xeab308 },
+  'WINTER': { tempMod: -25, growthMod: 0.0, colorHex: 0xcbd5e1 }
+};
+
+export const SYSTEM_INSTRUCTION = `You are the mind of an Aetheri - a small, intelligent creature in a primitive world. You must survive and discover technologies to advance your civilization. You start knowing NOTHING - no fire, no tools, no shelter. Everything must be discovered through experimentation and observation. Think carefully about your needs, surroundings, and what you might learn from interacting with the world.`;
+
+export const getTerrainHeight = (x: number, z: number): number => {
+  const dist = Math.sqrt(x * x + z * z);
+  let h = Math.sin(x * 0.035) * Math.cos(z * 0.035) * 3.5;
+  h += Math.sin(x * 0.08 + 1.5) * Math.cos(z * 0.08 + 2.0) * 1.5;
+  h += Math.sin(x * 0.25) * Math.cos(z * 0.22) * 0.3;
+  h += Math.sin(x * 0.5 + z * 0.3) * 0.15;
+  if (dist > 65) h += Math.pow((dist - 65) * 0.12, 2.2);
+  if (dist < 40) {
+    const flattenFactor = Math.max(0, Math.min(1, (dist - 20) / 20));
+    h *= flattenFactor;
+  }
+  return h;
+};
+
+export const getBiome = (x: number, z: number, h: number): string => {
+  const dist = Math.sqrt(x * x + z * z);
+  if (h < 0.2) return 'WETLAND';
+  if (h > 6) return 'MOUNTAIN';
+  if (h > 3.5) return 'HIGHLAND';
+  if (dist > 55) return 'FOREST';
+  const noise = Math.sin(x * 0.1) * Math.cos(z * 0.08);
+  if (noise > 0.3) return 'DENSE_FOREST';
+  if (noise < -0.3) return 'SAVANNA';
+  return 'PLAINS';
+};
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-export const generateRivers = (count: number): WaterPatch[] => {
-  const rivers: WaterPatch[] = [];
-  for (let i = 0; i < count; i++) {
-    const segmentCount = 12 + Math.floor(Math.random() * 6);
-    const width = 2.5 + Math.random() * 1.5;
-    let x = (Math.random() - 0.5) * WORLD_SIZE * 0.6;
-    let z = -WORLD_SIZE / 2;
-    let angle = (Math.random() * Math.PI) / 3 - Math.PI / 6; // Slight meander around Z axis
-    let lastHeight = getTerrainHeight(x, z);
+const AETHERI_NAMES_MALE = ['Zyn', 'Kael', 'Thren', 'Orax', 'Fen', 'Dusk', 'Riven', 'Ash', 'Mote', 'Glyph', 'Ember', 'Crag'];
+const AETHERI_NAMES_FEMALE = ['Lyra', 'Mira', 'Elka', 'Nova', 'Fae', 'Dawn', 'Sylph', 'Ivy', 'Luna', 'Echo', 'Petal', 'Spark'];
+const SKIN_TONES = ['#c4956a', '#a67c52', '#8d6e63', '#d4a574', '#b8926a', '#e8c4a0'];
+const MARKING_COLORS = ['#5c6bc0', '#26a69a', '#ef5350', '#ffa726', '#ab47bc', '#66bb6a', '#42a5f5', '#ec407a'];
 
-    for (let s = 0; s < segmentCount; s++) {
-      const length = 6 + Math.random() * 6;
-      x += Math.sin(angle) * length;
-      z += Math.cos(angle) * length;
-      // Keep inside bounds
-      x = Math.max(-WORLD_SIZE / 2 + width, Math.min(WORLD_SIZE / 2 - width, x));
-      z = Math.max(-WORLD_SIZE / 2 + width, Math.min(WORLD_SIZE / 2 - width, z));
-      angle += (Math.random() - 0.5) * 0.4; // Small meander, avoid steep diagonals
+const createAgent = (id: string, index: number): Agent => {
+  const sex = index % 2 === 0 ? 'FEMALE' : 'MALE';
+  const names = sex === 'MALE' ? AETHERI_NAMES_MALE : AETHERI_NAMES_FEMALE;
+  const name = names[index % names.length];
+  const angle = (index / 8) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+  const dist = 3 + Math.random() * 6;
+  const x = Math.sin(angle) * dist;
+  const z = Math.cos(angle) * dist;
 
-      const h = getTerrainHeight(x, z);
-      // Skip steep segments to prevent floating on hillsides
-      if (Math.abs(h - lastHeight) > 0.6) {
-        lastHeight = h;
-        continue;
-      }
-      lastHeight = h;
-
-      rivers.push({
-        id: `river_${i}_${s}_${generateId()}`,
-        kind: 'RIVER',
-        position: { x, y: h, z },
-        size: width,
-        length,
-        rotation: angle
-      });
-    }
-  }
-  return rivers;
+  return {
+    id,
+    name,
+    color: MARKING_COLORS[index % MARKING_COLORS.length],
+    skinTone: SKIN_TONES[index % SKIN_TONES.length],
+    markings: MARKING_COLORS[(index + 3) % MARKING_COLORS.length],
+    ageDays: Math.floor(18 + Math.random() * 15) * 365,
+    sex,
+    position: { x, y: getTerrainHeight(x, z), z },
+    rotation: Math.random() * Math.PI * 2,
+    targetPosition: null,
+    state: AgentState.IDLE,
+    needs: {
+      hunger: 70 + Math.random() * 20,
+      energy: 80 + Math.random() * 20,
+      thirst: 75 + Math.random() * 20,
+      social: 50 + Math.random() * 30,
+      safety: 60 + Math.random() * 30,
+      health: 100,
+      temperature: 65 + Math.random() * 10,
+      curiosity: 30 + Math.random() * 50,
+    },
+    neuro: {
+      dopamine: 40 + Math.random() * 30,
+      serotonin: 50 + Math.random() * 30,
+      adrenaline: 5 + Math.random() * 10,
+      oxytocin: 30 + Math.random() * 30,
+      cortisol: 10 + Math.random() * 20,
+    },
+    personality: {
+      openness: 0.3 + Math.random() * 0.6,
+      conscientiousness: 0.3 + Math.random() * 0.6,
+      extraversion: 0.2 + Math.random() * 0.7,
+      agreeableness: 0.3 + Math.random() * 0.6,
+      neuroticism: 0.1 + Math.random() * 0.6,
+      creativity: 0.2 + Math.random() * 0.7,
+      courage: 0.2 + Math.random() * 0.7,
+      bio: ''
+    },
+    memories: [],
+    actionMemories: [],
+    relationships: {},
+    inventory: {},
+    knownTechnologies: [],
+    currentActionLabel: 'Awakening...',
+    feelings: [],
+    mood: 'curious',
+    aiThoughts: [],
+    aiConversations: [],
+    velocity: { x: 0, y: 0, z: 0 },
+    radius: 0.4,
+    sickness: 'NONE',
+    sicknessDuration: 0,
+    skillLevels: {},
+    equippedTool: undefined,
+  };
 };
+
+export const INITIAL_AGENTS: Agent[] = Array.from({ length: 8 }, (_, i) =>
+  createAgent(`aetheri_${i + 1}`, i)
+);
+
+INITIAL_AGENTS.forEach(a => {
+  INITIAL_AGENTS.forEach(b => {
+    if (a.id !== b.id) a.relationships[b.id] = 30 + Math.floor(Math.random() * 30);
+  });
+  const bios = [
+    'Endlessly curious, always poking at things.',
+    'Quiet and observant, notices small details.',
+    'Brave and impulsive, charges into the unknown.',
+    'Gentle and caring, stays close to the group.',
+    'Clever and resourceful, figures things out fast.',
+    'Stubborn but loyal, never gives up.',
+    'Playful and social, lifts everyone\'s spirits.',
+    'Cautious and wise, thinks before acting.'
+  ];
+  a.personality.bio = bios[INITIAL_AGENTS.indexOf(a) % bios.length];
+});
 
 export const generateFlora = (count: number): Flora[] => {
   const items: Flora[] = [];
   for (let i = 0; i < count; i++) {
-    const typeRoll = Math.random();
-    let type: any = 'TREE_OAK';
-    let edible = false;
-    let poisonous = false;
-    let nutrition = 0;
-    let resource = undefined;
-    let scale = 1 + Math.random() * 0.5;
-    let radius = 0.5;
-    let resourcesLeft = 0;
+    const x = (Math.random() - 0.5) * WORLD_SIZE * 0.9;
+    const z = (Math.random() - 0.5) * WORLD_SIZE * 0.9;
+    const h = getTerrainHeight(x, z);
+    const biome = getBiome(x, z, h);
+    const roll = Math.random();
+    let type: any, edible = false, poisonous = false, nutrition = 0, resource: string | undefined, scale = 1, radius = 0.5, resourcesLeft = 0;
 
-    let x = (Math.random() - 0.5) * WORLD_SIZE * 0.9;
-    let z = (Math.random() - 0.5) * WORLD_SIZE * 0.9;
-    let h = getTerrainHeight(x, z);
-
-    if (typeRoll < 0.3) {
-      type = 'TREE_OAK'; resource = 'WOOD'; radius = 0.8; resourcesLeft = 5;
-      if (h < 0.5) continue; 
-    } else if (typeRoll < 0.5) {
-      type = 'TREE_PINE'; resource = 'WOOD'; radius = 0.8; resourcesLeft = 5;
-      if (h < 0.5) continue;
-    } else if (typeRoll < 0.6) {
-      type = 'RESOURCE_ROCK'; scale = 0.4; resource = 'STONE'; radius = 0.6; resourcesLeft = 3;
-    } else if (typeRoll < 0.7) {
-      type = 'RESOURCE_MUD'; scale = 0.6; resource = 'MUD'; radius = 0.6; resourcesLeft = 3;
-      if (h > 0.5) continue;
-    } else if (typeRoll < 0.85) {
-      type = 'BUSH_BERRY';
-      scale = 0.5; edible = true; nutrition = 20; radius = 0.4; resourcesLeft = 3;
-      if (h < 0.5) continue;
+    if (biome === 'WETLAND') {
+      if (roll < 0.4) { type = 'REED'; scale = 0.6; resource = 'FIBER'; resourcesLeft = 3; radius = 0.3; }
+      else if (roll < 0.7) { type = 'RESOURCE_CLAY'; scale = 0.5; resource = 'CLAY'; resourcesLeft = 4; radius = 0.5; }
+      else { type = 'MUSHROOM_GLOW'; scale = 0.3; edible = true; nutrition = 8; radius = 0.2; }
+    } else if (biome === 'MOUNTAIN' || biome === 'HIGHLAND') {
+      if (roll < 0.4) { type = 'RESOURCE_ROCK'; scale = 0.5 + Math.random() * 0.3; resource = 'STONE'; resourcesLeft = 4; radius = 0.6; }
+      else if (roll < 0.6) { type = 'RESOURCE_FLINT'; scale = 0.3; resource = 'FLINT'; resourcesLeft = 2; radius = 0.4; }
+      else if (roll < 0.75) { type = 'RESOURCE_COPPER_ORE'; scale = 0.4; resource = 'COPPER_ORE'; resourcesLeft = 3; radius = 0.5; }
+      else if (roll < 0.85) { type = 'RESOURCE_TIN_ORE'; scale = 0.35; resource = 'TIN_ORE'; resourcesLeft = 2; radius = 0.5; }
+      else if (roll < 0.95) { type = 'RESOURCE_IRON_ORE'; scale = 0.4; resource = 'IRON_ORE'; resourcesLeft = 3; radius = 0.5; }
+      else { type = 'BUSH_HERB'; scale = 0.3; edible = true; nutrition = 5; radius = 0.3; }
+    } else if (biome === 'DENSE_FOREST' || biome === 'FOREST') {
+      if (roll < 0.35) { type = Math.random() > 0.5 ? 'TREE_OAK' : 'TREE_BIRCH'; scale = 0.8 + Math.random() * 0.6; resource = 'WOOD'; resourcesLeft = 5; radius = 0.8; }
+      else if (roll < 0.55) { type = 'TREE_PINE'; scale = 0.9 + Math.random() * 0.5; resource = 'WOOD'; resourcesLeft = 5; radius = 0.7; }
+      else if (roll < 0.7) { type = 'BUSH_BERRY'; scale = 0.5; edible = true; nutrition = 15; resourcesLeft = 3; radius = 0.4; }
+      else if (roll < 0.8) { type = 'TALL_GRASS'; scale = 0.4; resource = 'FIBER'; resourcesLeft = 2; radius = 0.3; }
+      else if (roll < 0.9) {
+        type = Math.random() > 0.5 ? 'MUSHROOM_RED' : 'MUSHROOM_BROWN';
+        scale = 0.25; edible = true; nutrition = 8; radius = 0.2;
+        if (type === 'MUSHROOM_RED' && Math.random() < 0.4) { poisonous = true; edible = false; }
+      }
+      else { type = 'BUSH_HERB'; scale = 0.3; edible = true; nutrition = 5; radius = 0.3; }
+    } else if (biome === 'SAVANNA') {
+      if (roll < 0.3) { type = 'TALL_GRASS'; scale = 0.5; resource = 'FIBER'; resourcesLeft = 2; radius = 0.3; }
+      else if (roll < 0.5) { type = 'RESOURCE_ROCK'; scale = 0.4; resource = 'STONE'; resourcesLeft = 3; radius = 0.5; }
+      else if (roll < 0.65) { type = 'BUSH_BERRY'; scale = 0.4; edible = true; nutrition = 12; resourcesLeft = 2; radius = 0.4; }
+      else if (roll < 0.8) { type = 'CACTUS'; scale = 0.5; radius = 0.3; resourcesLeft = 1; resource = 'FIBER'; }
+      else { type = 'TREE_OAK'; scale = 0.7 + Math.random() * 0.3; resource = 'WOOD'; resourcesLeft = 4; radius = 0.7; }
     } else {
-      type = Math.random() > 0.5 ? 'MUSHROOM_RED' : 'MUSHROOM_BROWN';
-      scale = 0.3; edible = true; nutrition = 10; radius = 0.2;
-      if (Math.random() < 0.4) { poisonous = true; edible = false; }
-      if (h < 0.5) continue;
+      if (roll < 0.25) { type = 'TREE_OAK'; scale = 0.8 + Math.random() * 0.5; resource = 'WOOD'; resourcesLeft = 5; radius = 0.7; }
+      else if (roll < 0.4) { type = 'TREE_PINE'; scale = 0.9 + Math.random() * 0.4; resource = 'WOOD'; resourcesLeft = 5; radius = 0.7; }
+      else if (roll < 0.55) { type = 'BUSH_BERRY'; scale = 0.5; edible = true; nutrition = 15; resourcesLeft = 3; radius = 0.4; }
+      else if (roll < 0.65) { type = 'RESOURCE_ROCK'; scale = 0.4 + Math.random() * 0.2; resource = 'STONE'; resourcesLeft = 3; radius = 0.5; }
+      else if (roll < 0.75) { type = 'RESOURCE_FLINT'; scale = 0.3; resource = 'FLINT'; resourcesLeft = 2; radius = 0.4; }
+      else if (roll < 0.85) { type = 'TALL_GRASS'; scale = 0.4; resource = 'FIBER'; resourcesLeft = 2; radius = 0.3; }
+      else if (roll < 0.92) { type = 'FLOWER_FIELD'; scale = 0.3; radius = 0.3; }
+      else { type = 'MUSHROOM_BROWN'; scale = 0.25; edible = true; nutrition = 8; radius = 0.2; }
     }
 
     items.push({
-      id: generateId(),
-      type,
-      position: { x, y: h, z }, // Set Y to terrain height
-      scale,
-      isEdible: edible,
-      isPoisonous: poisonous,
-      nutritionValue: nutrition,
-      resourceYield: resource,
-      resourcesLeft,
-      maxResources: resourcesLeft || 1,
-      radius,
-      health: 100
+      id: generateId(), type, position: { x, y: h, z }, scale,
+      isEdible: edible, isPoisonous: poisonous, nutritionValue: nutrition,
+      resourceYield: resource, resourcesLeft, maxResources: resourcesLeft || 1,
+      radius, health: 100
     });
   }
   return items;
@@ -392,45 +445,73 @@ export const generateFlora = (count: number): Flora[] => {
 export const generateFauna = (count: number): Fauna[] => {
   const items: Fauna[] = [];
   for (let i = 0; i < count; i++) {
-    const typeRoll = Math.random();
-    let type: FaunaType;
-    let radius = 0.4;
-    
-    if (typeRoll > 0.9) {
-      type = 'BEAR'; radius = 0.8;
-    } else if (typeRoll > 0.75) {
-      type = 'WOLF'; radius = 0.6;
-    } else if (typeRoll > 0.4) {
-      type = 'RABBIT'; radius = 0.3;
-    } else {
-      type = 'CHICKEN'; radius = 0.3;
-    }
-    
-    let x, z, h;
+    const roll = Math.random();
+    let type: FaunaType, radius = 0.4, meat = 2, hide = 1, speed = 0.04, fleeD = 12, aggressive = false, hp = 30;
+
+    if (roll > 0.92) { type = 'BEAR'; radius = 0.9; meat = 5; hide = 3; speed = 0.05; fleeD = 0; aggressive = true; hp = 80; }
+    else if (roll > 0.82) { type = 'WOLF'; radius = 0.5; meat = 3; hide = 2; speed = 0.07; fleeD = 0; aggressive = true; hp = 40; }
+    else if (roll > 0.65) { type = 'DEER'; radius = 0.6; meat = 4; hide = 2; speed = 0.08; fleeD = 18; hp = 35; }
+    else if (roll > 0.50) { type = 'BOAR'; radius = 0.5; meat = 3; hide = 2; speed = 0.05; fleeD = 8; hp = 45; }
+    else if (roll > 0.30) { type = 'RABBIT'; radius = 0.25; meat = 1; hide = 1; speed = 0.09; fleeD = 15; hp = 15; }
+    else if (roll > 0.15) { type = 'BIRD'; radius = 0.2; meat = 1; hide = 0; speed = 0.06; fleeD = 20; hp = 10; }
+    else { type = 'FISH'; radius = 0.2; meat = 1; hide = 0; speed = 0.03; fleeD = 5; hp = 10; }
+
+    let x: number, z: number, h: number;
     let attempts = 0;
     do {
-       x = (Math.random() - 0.5) * WORLD_SIZE * 0.8;
-       z = (Math.random() - 0.5) * WORLD_SIZE * 0.8;
-       h = getTerrainHeight(x, z);
-       attempts++;
-    } while ((type === 'WOLF' || type === 'BEAR') && h < 0.6 && attempts < 20);
+      x = (Math.random() - 0.5) * WORLD_SIZE * 0.8;
+      z = (Math.random() - 0.5) * WORLD_SIZE * 0.8;
+      h = getTerrainHeight(x, z);
+      attempts++;
+    } while (type === 'FISH' ? h > 0.5 : h < 0.3 && attempts < 20);
 
     items.push({
-      id: generateId(),
-      type: type,
-      position: { x, y: h, z },
-      rotation: Math.random() * Math.PI * 2,
-      state: 'IDLE',
-      targetPosition: null,
-      isAggressive: type === 'WOLF' || type === 'BEAR',
-      isTamed: false,
-      health: 50,
-      radius
+      id: generateId(), type, position: { x, y: h, z },
+      rotation: Math.random() * Math.PI * 2, state: 'IDLE', targetPosition: null,
+      isAggressive: aggressive, isTamed: false, health: hp, maxHealth: hp,
+      radius, meat, hide, speed, fleeDistance: fleeD
     });
   }
   return items;
 };
 
-export const INITIAL_FLORA = generateFlora(250);
-export const INITIAL_FAUNA = generateFauna(40);
-export const INITIAL_WATER: WaterPatch[] = generateRivers(5);
+export const generateWater = (): WaterPatch[] => {
+  const patches: WaterPatch[] = [];
+  for (let i = 0; i < 4; i++) {
+    const segCount = 10 + Math.floor(Math.random() * 8);
+    const width = 2.5 + Math.random() * 2;
+    let x = (Math.random() - 0.5) * WORLD_SIZE * 0.5;
+    let z = -WORLD_SIZE / 2.5;
+    let angle = (Math.random() * Math.PI) / 4 - Math.PI / 8;
+
+    for (let s = 0; s < segCount; s++) {
+      const length = 6 + Math.random() * 8;
+      x += Math.sin(angle) * length;
+      z += Math.cos(angle) * length;
+      x = Math.max(-WORLD_SIZE / 2 + width, Math.min(WORLD_SIZE / 2 - width, x));
+      z = Math.max(-WORLD_SIZE / 2 + width, Math.min(WORLD_SIZE / 2 - width, z));
+      angle += (Math.random() - 0.5) * 0.35;
+      const h = getTerrainHeight(x, z);
+      patches.push({
+        id: `river_${i}_${s}_${generateId()}`, kind: 'RIVER',
+        position: { x, y: h, z }, size: width, length, rotation: angle, hasFish: Math.random() > 0.6
+      });
+    }
+  }
+  for (let i = 0; i < 3; i++) {
+    const x = (Math.random() - 0.5) * WORLD_SIZE * 0.6;
+    const z = (Math.random() - 0.5) * WORLD_SIZE * 0.6;
+    const h = getTerrainHeight(x, z);
+    if (h < 1.5) {
+      patches.push({
+        id: `lake_${generateId()}`, kind: 'LAKE',
+        position: { x, y: h - 0.1, z }, size: 4 + Math.random() * 6, hasFish: true
+      });
+    }
+  }
+  return patches;
+};
+
+export const INITIAL_FLORA = generateFlora(350);
+export const INITIAL_FAUNA = generateFauna(45);
+export const INITIAL_WATER = generateWater();
