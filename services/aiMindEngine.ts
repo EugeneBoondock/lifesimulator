@@ -78,6 +78,13 @@ export const getAIDecision = async (agent: Agent, gameState: GameState): Promise
 
   // Rich identity-aware prompt
   const recentThoughts = (agent.aiThoughts || []).slice(-2).join("; ");
+
+  // Calculate what's needed for a house
+  const woodNeeded = Math.max(0, 4 - (agent.inventory.WOOD || 0));
+  const stoneNeeded = Math.max(0, 2 - (agent.inventory.STONE || 0));
+  const mudNeeded = Math.max(0, 2 - (agent.inventory.MUD || 0));
+  const houseProgress = hasHouse ? "✓ Built" : woodNeeded + stoneNeeded + mudNeeded === 0 ? "Ready to build!" : `Need: ${woodNeeded}W ${stoneNeeded}S ${mudNeeded}M`;
+
   const prompt = `You are ${agent.name}, a unique individual in a survival world.
 Personality: ${agent.personality.bio}
 Traits: ${agent.personality.extraversion > 0.6 ? "Social" : "Introverted"}, ${agent.personality.neuroticism > 0.5 ? "Anxious" : "Calm"}, ${agent.personality.conscientiousness > 0.6 ? "Hardworking" : "Relaxed"}
@@ -86,7 +93,7 @@ Your current state:
 - Health:${Math.round(agent.needs.health)} Hunger:${Math.round(agent.needs.hunger)} Energy:${Math.round(agent.needs.energy)} Temperature:${Math.round(agent.needs.temperature)}
 - Inventory: Wood=${agent.inventory.WOOD||0}, Stone=${agent.inventory.STONE||0}, Mud=${agent.inventory.MUD||0}
 - ${gameState.dayTime < 6 || gameState.dayTime > 19 ? "It's NIGHT" : "Daytime"}, Season: ${gameState.season}
-- ${hasHouse ? "You have a home" : "You are homeless"} ${nearCampfire ? "| Near warm fire" : ""}
+- House Status: ${houseProgress} ${nearCampfire ? "| Near warm fire" : ""}
 ${recentThoughts ? `Recent thoughts: ${recentThoughts}` : ""}
 
 What you see nearby:
@@ -96,13 +103,20 @@ What you see nearby:
 - Named places: ${gameState.places?.filter(p => getDist(p.position, agent.position) < 20).map(p => `"${p.name}"(${Math.round(getDist(p.position, agent.position))}m)`).join(", ") || "none nearby"}
 ${incomingMessage ? `\n⚠️ INCOMING: ${incomingMessage} - You should RESPOND or IGNORE based on your relationship and mood.` : ""}
 
-Crafting: CAMPFIRE needs 2 Wood, HOUSE needs 4 Wood + 2 Stone + 2 Mud
-You can NAME_PLACE to give a name to your current location (use "placeName" field).
+Crafting & Actions:
+- BUILD: CAMPFIRE (need 2 Wood), HOUSE (need 4 Wood + 2 Stone + 2 Mud - you currently have ${houseProgress})
+- CRAFT: SPEAR (1 Wood + 1 Stone), STONE_AXE (1 Wood + 2 Stone)
+- GATHER: Look for ROCK (gives Stone), MUD (mud deposits), TREE (gives Wood)
+- COOK: Cook meat at campfire
+- FARM: FORAGE_SEEDS, PLANT_SEEDS (grow food)
+- STORE: Create storage pile for resources
+- NAME_PLACE: Give a name to current location (use "placeName" field)
 
 As ${agent.name}, decide what to do next. Think about your personality and needs.
+${!hasHouse && mudNeeded > 0 ? `PRIORITY: You still need ${mudNeeded} MUD to build your house! Look for MUD resource nodes.` : ""}
 IMPORTANT: Avoid walking into trees. If someone talks to you, decide to RESPOND (friendly) or IGNORE (hurts relationship).
 Respond with JSON only:
-{"action":"GATHER|CRAFT|SLEEP|FLEE|SOCIAL|RESPOND|IGNORE|WANDER|NAME_PLACE","target":"id_from_brackets","thought":"your inner monologue","say":"what you say or null","placeName":"name for NAME_PLACE or null"}`;
+{"action":"GATHER|BUILD|CRAFT|COOK|SLEEP|FLEE|SOCIAL|RESPOND|IGNORE|WANDER|HUNT|DRINK|TAME|FARM|STORE|BREED|NAME_PLACE","target":"id_from_brackets or CAMPFIRE/HOUSE/SPEAR/STONE_AXE/SEEDS","thought":"your inner monologue","say":"what you say or null","placeName":"name for NAME_PLACE or null"}`;
 
   const decision = fetch(`${OLLAMA_URL}/api/generate`, {
     method: "POST",
@@ -120,8 +134,13 @@ Respond with JSON only:
       const data = await res.json();
       const text = data.response?.trim() || "";
       const jsonMatch = text.match(/\{[\s\S]*?\}/);
-      if (!jsonMatch) throw new Error("No JSON in: " + text.slice(0, 100));
-      const parsed = JSON.parse(jsonMatch[0]);
+      if (!jsonMatch) throw new Error("No JSON in: " + text.slice(0, 120));
+      let parsed: any;
+      try {
+        parsed = JSON.parse(jsonMatch[0]);
+      } catch (err) {
+        throw new Error("JSON parse failed: " + (err as Error).message);
+      }
       const decision = {
         action: parsed.action || "WANDER",
         targetId: parsed.target || undefined,
@@ -237,6 +256,79 @@ export const applyAIDecision = (
         const newRel = { ...agent.relationships };
         newRel[talker.id] = (newRel[talker.id] || 0) - 10;
         update.relationships = newRel;
+      }
+      break;
+    }
+    case "HUNT": {
+      const prey = gameState.fauna.find((f) => !f.isAggressive && f.id.startsWith(decision.targetId?.slice(0, 4) || "XXX"))
+        || gameState.fauna.find((f) => !f.isAggressive);
+      if (prey) {
+        update.state = AgentState.MOVING;
+        update.targetPosition = prey.position;
+        update.targetId = prey.id;
+      }
+      break;
+    }
+    case "DRINK": {
+      const water = gameState.water?.find((w) => getDist(w.position, agent.position) < 20);
+      if (water) {
+        update.state = AgentState.MOVING;
+        update.targetPosition = water.position;
+        update.targetId = "WATER_SOURCE";
+      }
+      break;
+    }
+    case "NAME_PLACE": {
+      if (decision.placeName) {
+        update.state = AgentState.IDLE;
+        update.currentActionLabel = `Named this place "${decision.placeName}"`;
+      }
+      break;
+    }
+    case "COOK": {
+      update.state = AgentState.WORKING;
+      update.targetId = "COOK_MEAT";
+      break;
+    }
+    case "TAME": {
+      const animal = gameState.fauna.find((f) => !f.isAggressive && !f.isTamed && f.id.startsWith(decision.targetId?.slice(0, 4) || "XXX"))
+        || gameState.fauna.find((f) => !f.isAggressive && !f.isTamed);
+      if (animal) {
+        update.state = AgentState.MOVING;
+        update.targetPosition = animal.position;
+        update.targetId = animal.id;
+      }
+      break;
+    }
+    case "FARM": {
+      const target = decision.targetId?.toUpperCase();
+      if (target === "SEEDS" || target === "FORAGE_SEEDS") {
+        update.state = AgentState.WORKING;
+        update.targetId = "FORAGE_SEEDS";
+      } else if (target === "PLANT" || target === "PLANT_SEEDS") {
+        update.state = AgentState.WORKING;
+        update.targetId = "PLANT_SEEDS";
+      } else {
+        update.state = AgentState.WORKING;
+        update.targetId = (agent.inventory.SEEDS || 0) > 0 ? "PLANT_SEEDS" : "FORAGE_SEEDS";
+      }
+      break;
+    }
+    case "STORE": {
+      update.state = AgentState.WORKING;
+      update.targetId = "CREATE_STORAGE";
+      break;
+    }
+    case "BREED": {
+      // Find a partner - requires relationship >= 20 to consider breeding
+      const partners = gameState.agents
+        .filter(a => a.id !== agent.id && a.sex !== agent.sex && (agent.relationships[a.id] || 0) >= 20)
+        .sort((a, b) => (agent.relationships[b.id] || 0) - (agent.relationships[a.id] || 0));
+      const partner = partners[0];
+      if (partner) {
+        update.state = AgentState.MOVING;
+        update.targetPosition = partner.position;
+        update.targetId = partner.id;
       }
       break;
     }

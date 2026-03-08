@@ -124,15 +124,44 @@ const solveGoal_Sickness = (agent: Agent, gameState: GameState, neuro: NeuroChem
    return null;
 };
 
+const memoryScore = (agent: Agent, targetType: string, action: string) => {
+  const records = (agent.actionMemories || []).filter(m => m.targetType === targetType && m.action === action);
+  if (!records.length) return 0;
+  const sum = records.reduce((acc, r) => acc + r.outcome * (r.confidence || 1), 0);
+  const weight = records.reduce((acc, r) => acc + (r.confidence || 1), 0);
+  return sum / weight;
+};
+
 const solveGoal_Hunger = (agent: Agent, gameState: GameState, neuro: NeuroChemistry): Partial<Agent> | null => {
    const hungerThreshold = 50 + (agent.personality.neuroticism * 20);
+
+   // If already cooking, keep going
+   if (agent.targetId === 'COOK_MEAT') return null;
+
+   // Cook meat if hungry and have meat + fire nearby (or build one)
+   if (agent.needs.hunger < hungerThreshold && (agent.inventory['MEAT'] || 0) > 0) {
+      const fire = gameState.buildings.find(b => b.type === 'CAMPFIRE' && dist(b.position, agent.position) < 8);
+      if (fire) return { state: AgentState.WORKING, targetId: 'COOK_MEAT', currentActionLabel: "Cooking meat", neuro };
+      if ((agent.inventory['WOOD'] || 0) >= 2) {
+         return { state: AgentState.WORKING, targetId: 'BUILD_CAMPFIRE', currentActionLabel: "Building fire to cook", neuro };
+      }
+   }
+
    // If already moving to food, don't change target constantly
    if (agent.state === AgentState.MOVING && agent.targetId && agent.targetId.startsWith('FOOD')) return null;
 
    if (agent.needs.hunger < hungerThreshold) {
-      const foods = gameState.flora.filter(f => f.isEdible && (f.resourcesLeft||0) > 0 && dist(f.position, agent.position) < 50);
-      const food = foods.sort((a,b) => dist(agent.position, a.position) - dist(agent.position, b.position))[0];
-      if (food) return { state: AgentState.MOVING, targetPosition: food.position, targetId: food.id, currentActionLabel: "Foraging", neuro };
+      const foods = gameState.flora
+        .filter(f => f.isEdible && (f.resourcesLeft||0) > 0 && dist(f.position, agent.position) < 60)
+        .map(f => ({
+          f,
+          d: dist(agent.position, f.position),
+          score: memoryScore(agent, f.type, 'EAT')
+        }))
+        .sort((a,b) => (b.score - a.score) || (a.d - b.d))[0];
+      if (foods) {
+        return { state: AgentState.MOVING, targetPosition: foods.f.position, targetId: foods.f.id, currentActionLabel: "Foraging", neuro };
+      }
    }
    return null;
 };
@@ -140,11 +169,52 @@ const solveGoal_Hunger = (agent: Agent, gameState: GameState, neuro: NeuroChemis
 const solveGoal_Thirst = (agent: Agent, gameState: GameState, neuro: NeuroChemistry): Partial<Agent> | null => {
   const thirstThreshold = 50 - (agent.personality.conscientiousness * 20);
   if ((agent.needs as any).thirst !== undefined && agent.needs.thirst < thirstThreshold) {
-    const nearbyWater = (gameState.water || []).map(w => ({ w, d: dist(agent.position, w.position) })).sort((a,b) => a.d - b.d)[0];
-    if (nearbyWater && nearbyWater.d < 80) {
-      return { state: AgentState.MOVING, targetPosition: nearbyWater.w.position, targetId: 'WATER_SOURCE', currentActionLabel: "Seeking water", neuro };
+    const puddles = (gameState.water || []).filter(w => w.kind === 'PUDDLE').map(w => ({ w, d: dist(agent.position, w.position) })).sort((a,b) => a.d - b.d);
+    const rivers = (gameState.water || []).filter(w => w.kind === 'RIVER').map(w => ({ w, d: dist(agent.position, w.position) })).sort((a,b) => a.d - b.d);
+    const nearby = puddles.concat(rivers)[0];
+    if (nearby && nearby.d < 100) {
+      return { state: AgentState.MOVING, targetPosition: nearby.w.position, targetId: 'WATER_SOURCE', currentActionLabel: nearby.w.kind === 'PUDDLE' ? "Drinking from puddle" : "Heading to water", neuro };
+    }
+    // No water found nearby: dig for a pit
+    if (agent.needs.thirst < thirstThreshold - 10) {
+      return { state: AgentState.WORKING, targetId: 'DIG_TERRAIN', currentActionLabel: "Digging for water", neuro };
     }
   }
+  return null;
+};
+
+const solveGoal_Farming = (agent: Agent, gameState: GameState, neuro: NeuroChemistry): Partial<Agent> | null => {
+  const seeds = agent.inventory['SEEDS'] || 0;
+  const nearbyCrops = gameState.flora.filter(f => f.type === 'FARM_CROP' && dist(agent.position, f.position) < 20);
+  const needFoodSoon = agent.needs.hunger < 70;
+
+  // Water crops if nearby and not recently watered
+  const dryCrop = nearbyCrops.find(c => (c as any).lastWateredTick === undefined || (gameState.time - (c as any).lastWateredTick) > 120);
+  if (dryCrop) {
+    return { state: AgentState.WORKING, targetId: 'WATER_CROP', currentActionLabel: "Watering crops", neuro };
+  }
+
+  // If hungry and a crop is nearby, harvest it
+  if (needFoodSoon && nearbyCrops.length > 0) {
+    const crop = nearbyCrops.sort((a,b) => dist(agent.position, a.position) - dist(agent.position, b.position))[0];
+    return { state: AgentState.MOVING, targetPosition: crop.position, targetId: crop.id, currentActionLabel: "Harvesting crop", neuro };
+  }
+
+  // Plant seeds if we have them and not already on a planting task
+  if (seeds > 0 && needFoodSoon && agent.targetId !== 'PLANT_SEEDS') {
+    const plantX = agent.position.x + (Math.random() - 0.5) * 4;
+    const plantZ = agent.position.z + (Math.random() - 0.5) * 4;
+    const plantY = getTerrainHeight(plantX, plantZ);
+    return { state: AgentState.WORKING, targetId: 'PLANT_SEEDS', targetPosition: { x: plantX, y: plantY, z: plantZ }, currentActionLabel: "Planting seeds", neuro };
+  }
+
+  // Forage for seeds if none
+  if (seeds === 0 && agent.targetId !== 'FORAGE_SEEDS') {
+    const forageX = agent.position.x + (Math.random() - 0.5) * 8;
+    const forageZ = agent.position.z + (Math.random() - 0.5) * 8;
+    return { state: AgentState.WORKING, targetId: 'FORAGE_SEEDS', targetPosition: { x: forageX, y: 0, z: forageZ }, currentActionLabel: "Foraging for seeds", neuro };
+  }
+
   return null;
 };
 
@@ -170,7 +240,7 @@ const solveGoal_BuildShelter = (agent: Agent, gameState: GameState, neuro: Neuro
     return { state: AgentState.WORKING, targetId: 'BUILD_CAMPFIRE', currentActionLabel: "Building fire", neuro };
   }
 
-  // Proactively build a house whenever possible (no longer wait for strict urgency)
+  // Build house if we have all materials
   if (wood >= 4 && stone >= 2 && mud >= 2) {
     const range = 6 + agent.personality.openness * 25;
     const angle = Math.random() * Math.PI * 2;
@@ -181,10 +251,18 @@ const solveGoal_BuildShelter = (agent: Agent, gameState: GameState, neuro: Neuro
     return {
       state: AgentState.MOVING,
       targetPosition: { x: buildX, y: buildY, z: buildZ },
-      targetId: 'BUILD_HOUSE_SITE',
-      currentActionLabel: "Building my house",
+      targetId: `BUILD_HOUSE_SITE:${agent.id}`,
+      currentActionLabel: `Building my shelter`,
       neuro
     };
+  }
+
+  // Only gather materials if shelter is urgent OR we're close to having enough
+  const totalMaterials = wood + stone + mud;
+  const closeToReady = totalMaterials >= 6; // At least 75% of materials
+
+  if (!shelterUrgent && !closeToReady) {
+    return null; // Let other goals take priority
   }
 
   let needed = '';
@@ -218,13 +296,7 @@ const solveGoal_BuildShelter = (agent: Agent, gameState: GameState, neuro: Neuro
     };
   }
 
-  // Search if nothing found
-  return {
-    state: AgentState.MOVING,
-    targetPosition: { x: (Math.random() - 0.5) * WORLD_SIZE, y: 0, z: (Math.random() - 0.5) * WORLD_SIZE },
-    currentActionLabel: `Searching for ${needed}...`,
-    neuro
-  };
+  return null;
 };
 
 const solveGoal_Social = (agent: Agent, gameState: GameState, neuro: NeuroChemistry): Partial<Agent> | null => {
@@ -262,12 +334,25 @@ const solveGoal_Social = (agent: Agent, gameState: GameState, neuro: NeuroChemis
 };
 
 const solveGoal_Hunt = (agent: Agent, gameState: GameState, neuro: NeuroChemistry): Partial<Agent> | null => {
-  if (agent.needs.hunger > 60) return null;
+  // Necessity-driven: if hunger is low OR reserves are low
+  const meatStock = agent.inventory['MEAT'] || 0;
+  if (agent.needs.hunger > 65 && meatStock >= 4) return null;
+
+  const hasWeapon = !!(agent.equippedTool || agent.inventory['SPEAR'] || agent.inventory['STONE_AXE'] || agent.inventory['STICK']);
+  if (!hasWeapon) {
+    const tree = gameState.flora
+      .filter(f => f.resourceYield === 'WOOD' && (f.resourcesLeft || 0) > 0)
+      .sort((a, b) => dist(agent.position, a.position) - dist(agent.position, b.position))[0];
+    if (tree) {
+      return { state: AgentState.MOVING, targetPosition: tree.position, targetId: tree.id, currentActionLabel: "Grabbing a stick", neuro };
+    }
+  }
+
   const prey = gameState.fauna
     .filter(f => !f.isAggressive)
     .map(f => ({ f, d: dist(agent.position, f.position) }))
     .sort((a, b) => a.d - b.d)[0];
-  if (prey && prey.d < 60) {
+  if (prey && prey.d < 70) {
     return { state: AgentState.MOVING, targetPosition: prey.f.position, targetId: prey.f.id, currentActionLabel: "Hunting prey", neuro };
   }
   return null;
@@ -297,28 +382,50 @@ export const updateAgentBehavior = (agent: Agent, gameState: GameState): Partial
   const sickAction = solveGoal_Sickness(agent, gameState, newNeuro);
   if (sickAction) return sickAction;
 
+  // Shelter is priority one if no home or conditions are bad
+  const shelterAction = solveGoal_BuildShelter(agent, gameState, newNeuro);
+  if (shelterAction) return shelterAction;
+
+  // Night behavior: gather at fire or sleep
+  const isNight = gameState.dayTime < 6 || gameState.dayTime > 19;
+  if (isNight) {
+    const fire = gameState.buildings.find(b => b.type === 'CAMPFIRE');
+    if (fire && dist(agent.position, fire.position) > 4) {
+      return { state: AgentState.MOVING, targetPosition: fire.position, targetId: fire.id, currentActionLabel: "Gathering at fire", neuro: newNeuro };
+    }
+    return { state: AgentState.SLEEPING, currentActionLabel: "Sleeping by the fire", neuro: newNeuro };
+  }
+
   const thirstAction = solveGoal_Thirst(agent, gameState, newNeuro);
   if (thirstAction) return thirstAction;
 
+  const farmingAction = solveGoal_Farming(agent, gameState, newNeuro);
+  if (farmingAction) return farmingAction;
+
   // Hunger Priority Increased (Above Safety)
-  const hungerPriority = 40;
+  const hungerPriority = 55;
   if (agent.needs.health < 30 || agent.needs.hunger < hungerPriority) {
+      const huntAction = solveGoal_Hunt(agent, gameState, newNeuro);
+      if (huntAction) return huntAction;
       const hungerAction = solveGoal_Hunger(agent, gameState, newNeuro);
       if (hungerAction) return hungerAction;
   }
 
-  const huntAction = solveGoal_Hunt(agent, gameState, newNeuro);
-  if (huntAction) return huntAction;
-
   const toolAction = solveGoal_Tools(agent, gameState, newNeuro);
   if (toolAction) return toolAction;
 
-  // Safety (Moved Down)
+  // Rest when low energy: prefer shelter or fire
+  if (agent.needs.energy < 50) {
+    const house = gameState.buildings.find(b => b.type === 'HOUSE' && (b.ownerId === agent.id || true));
+    const fire = gameState.buildings.find(b => b.type === 'CAMPFIRE');
+    if (house) return { state: AgentState.MOVING, targetPosition: house.position, targetId: house.id, currentActionLabel: "Resting in shelter", neuro: newNeuro };
+    if (fire) return { state: AgentState.MOVING, targetPosition: fire.position, targetId: fire.id, currentActionLabel: "Resting by the fire", neuro: newNeuro };
+    return { state: AgentState.SLEEPING, currentActionLabel: "Resting", neuro: newNeuro };
+  }
+
+  // Safety next
   const safetyAction = solveGoal_Safety(agent, gameState, newNeuro);
   if (safetyAction) return safetyAction;
-
-  const shelterAction = solveGoal_BuildShelter(agent, gameState, newNeuro);
-  if (shelterAction) return shelterAction;
 
   const socialAction = solveGoal_Social(agent, gameState, newNeuro);
   if (socialAction) return socialAction;

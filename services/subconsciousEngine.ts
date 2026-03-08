@@ -79,8 +79,13 @@ Return compact JSON: {"feelings":["label","label2"],"mood":"one_or_two_words"}`;
     const data = await res.json();
     const text = data.response?.trim() || "";
     const jsonMatch = text.match(/\{[\s\S]*?\}/);
-    if (!jsonMatch) throw new Error("no feelings JSON");
-    const parsed = JSON.parse(jsonMatch[0]);
+    if (!jsonMatch) return deriveFeelings(agent);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      return deriveFeelings(agent);
+    }
     const feelings: string[] = Array.isArray(parsed.feelings) ? parsed.feelings.map((f: any) => String(f)) : [];
     const mood: string = parsed.mood ? String(parsed.mood) : "neutral";
     return { feelings, mood };

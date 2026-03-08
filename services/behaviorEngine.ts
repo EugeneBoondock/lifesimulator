@@ -1,6 +1,6 @@
 
 import { Agent, AgentState, GameState, Flora, Fauna, Building, Vector3 } from "../types";
-import { CRAFTING_RECIPES, CHAT_TEMPLATES, WORLD_SIZE } from "../constants";
+import { CRAFTING_RECIPES, CHAT_TEMPLATES, WORLD_SIZE, MAX_INVENTORY_SIZE } from "../constants";
 import { audioManager } from "./audioService";
 
 // Helper for distances
@@ -27,6 +27,35 @@ export const updateAgentBehavior = (agent: Agent, gameState: GameState): Partial
       chatBubble: "Run away!!",
       lastChatTime: gameState.time
     };
+  }
+  
+  // INVENTORY FULL CHECK
+  const inventoryCount = Object.values(agent.inventory || {}).reduce((a, b) => a + b, 0);
+  if (inventoryCount >= MAX_INVENTORY_SIZE) {
+      // Try to find existing storage
+      const storage = gameState.buildings.find(b => b.type === 'CRATE' && dist(b.position, agent.position) < 20);
+      if (storage) {
+          if (dist(storage.position, agent.position) < 2) {
+              return {
+                  state: AgentState.WORKING,
+                  targetId: storage.id, // Target the crate to interact
+                  currentActionLabel: "Storing resources"
+              };
+          }
+          return {
+              state: AgentState.MOVING,
+              targetPosition: storage.position,
+              targetId: storage.id,
+              currentActionLabel: "Going to store resources"
+          };
+      } else {
+          // Create new storage nearby
+          return {
+              state: AgentState.WORKING,
+              targetId: "CREATE_STORAGE", 
+              currentActionLabel: "Creating storage pile"
+          };
+      }
   }
 
   // 2. Utility Scoring

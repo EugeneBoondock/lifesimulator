@@ -63,6 +63,11 @@ export interface Agent {
   id: string;
   name: string;
   color: string;
+  ageDays: number;
+  hairColor?: string;
+  clothesColor?: string;
+  sex?: 'MALE' | 'FEMALE';
+  gender?: string;
   position: Vector3;
   rotation: number; 
   targetPosition: Vector3 | null;
@@ -81,6 +86,7 @@ export interface Agent {
   leadership?: number; // 0-1 leadership inclination
   role?: 'LEADER' | 'CITIZEN';
   equippedTool?: string;
+  caringEggId?: string;
   feelings?: string[];
   mood?: string;
   // AI Mind
@@ -103,11 +109,12 @@ export interface Building {
   radius: number; 
   health: number; // Durability
   isOnFire?: boolean;
+  inventory?: Record<string, number>;
 }
 
 // --- NATURE & DISCOVERY ---
 
-export type FloraType = 'TREE_OAK' | 'TREE_PINE' | 'BUSH_BERRY' | 'MUSHROOM_RED' | 'MUSHROOM_BROWN' | 'RESOURCE_ROCK' | 'RESOURCE_MUD';
+export type FloraType = 'TREE_OAK' | 'TREE_PINE' | 'BUSH_BERRY' | 'MUSHROOM_RED' | 'MUSHROOM_BROWN' | 'RESOURCE_ROCK' | 'RESOURCE_MUD' | 'RESOURCE_BONE' | 'FARM_CROP';
 export type FaunaType = 'RABBIT' | 'CHICKEN' | 'WOLF' | 'BEAR';
 export type WaterKind = 'RIVER' | 'PUDDLE';
 
@@ -116,6 +123,9 @@ export interface Flora {
   type: FloraType;
   position: Vector3;
   scale: number;
+  growthStage?: number; // For farm crops: 0=seedling,1=growing,2=ripe
+  growthTimer?: number; // Ticks spent growing
+  regrowTicks?: number; // Time to regrow fully
   isEdible: boolean;
   isPoisonous: boolean;
   nutritionValue: number;
@@ -140,6 +150,7 @@ export interface Fauna {
   ownerId?: string;
   health: number;
   radius: number;
+  meat?: number;
 }
 
 export interface WaterPatch {
@@ -185,6 +196,13 @@ export interface GovernanceState {
   cohesion: number; // 0-100 scale representing societal cohesion
 }
 
+export interface Egg {
+  id: string;
+  position: Vector3;
+  hatchAt: number;
+  parents: { id: string; color: string; hairColor?: string; clothesColor?: string }[];
+}
+
 export interface GameState {
   agents: Agent[];
   buildings: Building[];
@@ -192,6 +210,7 @@ export interface GameState {
   fauna: Fauna[];
   water: WaterPatch[];
   places: NamedPlace[];
+  eggs: Egg[];
   knowledge: KnowledgeBase;
   time: number; // Tick count
   dayTime: number; // 0-24 hours

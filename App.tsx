@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { INITIAL_AGENTS, INITIAL_FLORA, INITIAL_FAUNA, DAY_LENGTH_TICKS, WORLD_SIZE, getTerrainHeight, SEASON_LENGTH_DAYS, SEASON_PROPERTIES, INITIAL_WATER } from './constants';
-import { GameState, Agent, AgentState, Building, Flora, Fauna, Season, Weather, WaterPatch } from './types';
+import { INITIAL_AGENTS, INITIAL_FLORA, INITIAL_FAUNA, DAY_LENGTH_TICKS, WORLD_SIZE, getTerrainHeight, SEASON_LENGTH_DAYS, SEASON_PROPERTIES, INITIAL_WATER, CHAT_TEMPLATES, MAX_INVENTORY_SIZE } from './constants';
+import { GameState, Agent, AgentState, Building, Flora, Fauna, Season, Weather, WaterPatch, NamedPlace } from './types';
 import World3D from './components/World3D';
 import UIOverlay from './components/UIOverlay';
 import { updateAgentBehavior, learnActionOutcome } from './services/neuroEngine';
@@ -11,7 +11,50 @@ import { audioManager } from './services/audioService';
 import { initDB, loadAllAgents, saveAllAgents } from './services/memoryStorage';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
-const dist = (p1: {x:number, z:number}, p2: {x:number, z:number}) => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.z - p2.z, 2));
+  const dist = (p1: {x:number, z:number}, p2: {x:number, z:number}) => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.z - p2.z, 2));
+const TRADE_BASE_VALUES: Record<string, number> = { WOOD: 2, STONE: 3, MUD: 2, MEAT: 6, SPEAR: 12, STONE_AXE: 10, STICK: 3 };
+
+const getItemValue = (agent: Agent, buildings: Building[], item: string) => {
+  const base = TRADE_BASE_VALUES[item] ?? 1;
+  const hasHouse = buildings.some(b => b.type === 'HOUSE' && b.ownerId === agent.id);
+  let value = base;
+  if (!hasHouse && (item === 'WOOD' || item === 'STONE' || item === 'MUD')) value *= 1.3;
+  if (item === 'WOOD' && agent.needs.temperature < 55) value *= 1.25;
+  if (item === 'MEAT' && agent.needs.hunger < 70) value *= 1.5;
+  return value;
+};
+
+const pickTrade = (a: Agent, b: Agent, buildings: Building[]) => {
+  const aItems = Object.entries(a.inventory || {}).filter(([_, q]) => (q || 0) > 0);
+  const bItems = Object.entries(b.inventory || {}).filter(([_, q]) => (q || 0) > 0);
+  let best: { giveA: string; giveB: string; gain: number } | null = null;
+
+  aItems.forEach(([giveA]) => {
+    bItems.forEach(([giveB]) => {
+      const aGain = getItemValue(a, buildings, giveB) - getItemValue(a, buildings, giveA);
+      const bGain = getItemValue(b, buildings, giveA) - getItemValue(b, buildings, giveB);
+      const fairForA = getItemValue(a, buildings, giveB) >= getItemValue(a, buildings, giveA) * 0.9;
+      const fairForB = getItemValue(b, buildings, giveA) >= getItemValue(b, buildings, giveB) * 0.9;
+      if (aGain > 0 && bGain > 0 && fairForA && fairForB) {
+        const total = aGain + bGain;
+        if (!best || total > best.gain) best = { giveA, giveB, gain: total };
+      }
+    });
+  });
+  return best;
+};
+const recordActionMemory = (agent: Agent, targetType: string, action: string, outcome: number) => {
+  const mem = { targetType, action, outcome, confidence: 1 };
+  agent.actionMemories = [...(agent.actionMemories || [])].slice(-20).concat(mem);
+};
+const mixColor = (c1?: string, c2?: string) => {
+  const a = parseInt((c1 || "#888888").replace("#",""), 16);
+  const b = parseInt((c2 || "#888888").replace("#",""), 16);
+  const r = ((a >> 16) + (b >> 16)) >> 1;
+  const g = (((a >> 8) & 0xff) + ((b >> 8) & 0xff)) >> 1;
+  const bl = ((a & 0xff) + (b & 0xff)) >> 1;
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${bl.toString(16).padStart(2,'0')}`;
+};
 
 function App() {
   const [gameState, setGameState] = useState<GameState>({
@@ -19,8 +62,9 @@ function App() {
     buildings: [],
     flora: INITIAL_FLORA,
     fauna: INITIAL_FAUNA,
-    water: INITIAL_WATER,
-    places: [],
+        water: INITIAL_WATER,
+        eggs: [],
+        places: [],
     knowledge: {},
     time: 0,
     dayTime: 12,
@@ -120,9 +164,11 @@ function App() {
         const nextDayTime = rawDayTime % 24;
         let nextDay = prev.day;
         let nextSeason = prev.season;
+        let ageIncrement = 0;
         
         if (Math.floor(rawDayTime) > Math.floor(prev.dayTime) && Math.floor(rawDayTime) % 24 === 0) {
             nextDay = prev.day + 1;
+            ageIncrement = 1;
             const seasonIdx = Math.floor((nextDay - 1) / SEASON_LENGTH_DAYS) % 4;
             nextSeason = (['SPRING', 'SUMMER', 'AUTUMN', 'WINTER'] as Season[])[seasonIdx];
         }
@@ -155,6 +201,7 @@ function App() {
         let activeAgents = [...prev.agents];
         let activeFauna = [...prev.fauna];
         let water: WaterPatch[] = prev.water.map(w => ({ ...w }));
+        let eggs = [...prev.eggs];
         let governance = { ...(prev.governance || { leaderId: INITIAL_AGENTS[0]?.id || null, cohesion: 60 }) };
         let faunaToRemove: string[] = [];
 
@@ -257,8 +304,11 @@ function App() {
         }).filter(f => !faunaToRemove.includes(f.id));
 
         // 2. AGENT LOGIC
-        const nextAgents = activeAgents.map(agent => {
+        let nextAgents = activeAgents.map(agent => {
           let updatedAgent = { ...agent };
+          if (ageIncrement > 0) {
+            updatedAgent.ageDays = (updatedAgent.ageDays || 0) + ageIncrement;
+          }
           
           // STUCK DETECTION
           if (updatedAgent.state === AgentState.MOVING) {
@@ -277,6 +327,22 @@ function App() {
              agentPosHistory.current[agent.id] = h;
           }
 
+          // Motherly instinct: move toward egg being cared for
+          if (updatedAgent.caringEggId) {
+            const targetEgg = eggs.find(e => e.id === updatedAgent.caringEggId);
+            if (targetEgg) {
+              const dEgg = dist(updatedAgent.position, targetEgg.position);
+              if (dEgg > 3) {
+                updatedAgent.state = AgentState.MOVING;
+                updatedAgent.targetPosition = targetEgg.position;
+                updatedAgent.targetId = targetEgg.id;
+                updatedAgent.currentActionLabel = "Guarding egg";
+              }
+            } else {
+              updatedAgent.caringEggId = undefined;
+            }
+          }
+
           // Only use neuroEngine fallback if agent is IDLE (AI not controlling)
           if (updatedAgent.state === AgentState.IDLE) {
             const behaviorUpdates = updateAgentBehavior(updatedAgent, { ...prev, season: nextSeason, agents: activeAgents, buildings, flora, fauna: nextFauna, water, governance });
@@ -284,37 +350,35 @@ function App() {
             updatedAgent = { ...updatedAgent, ...behaviorUpdates };
           }
 
-          // AI Mind: Core decision engine via Ollama (cooldown handled in aiMindEngine)
-          // Try AI for any idle agent
+          // AI Mind: Core decision engine via Ollama - runs for all agents regardless of state
+          // The AI cooldown prevents overwhelming Ollama, and decisions are applied async
           getAIDecision(updatedAgent, { ...prev, season: nextSeason, agents: activeAgents, buildings, flora, fauna: nextFauna, water, governance })
-              .then(decision => {
-                if (decision) {
-                  const aiUpdate = applyAIDecision(updatedAgent, decision, prev) || {};
-                  setGameState(g => ({
-                    ...g,
-                    agents: g.agents.map(a => {
-                      if (a.id !== agent.id) return a;
-                      const updated = { ...a, ...aiUpdate };
-                      // Always store thought
-                      if (decision.thoughtProcess) {
-                        updated.aiThoughts = [...(a.aiThoughts || []).slice(-9), decision.thoughtProcess];
-                      }
-                      // Store conversation if dialogue exists
-                      if (decision.dialogue) {
-                        const targetName = aiUpdate.targetId
-                          ? g.agents.find(t => t.id === aiUpdate.targetId)?.name || 'someone'
-                          : 'self';
-                        updated.aiConversations = [...(a.aiConversations || []).slice(-9), {
-                          with: targetName,
-                          message: decision.dialogue,
-                          time: g.time
-                        }];
-                      }
-                      return updated;
-                    })
-                  }));
-                }
-              });
+                .then(decision => {
+                  if (decision) {
+                    const aiUpdate = applyAIDecision(updatedAgent, decision, prev) || {};
+                    setGameState(g => ({
+                      ...g,
+                      agents: g.agents.map(a => {
+                        if (a.id !== agent.id) return a;
+                        const updated = { ...a, ...aiUpdate };
+                        // Always store thought
+                        if (decision.thoughtProcess) {
+                          updated.aiThoughts = [...(a.aiThoughts || []).slice(-9), decision.thoughtProcess];
+                        }
+                        // Store conversation if dialogue exists AND there's a target (not self-talk)
+                        if (decision.dialogue && aiUpdate.targetId) {
+                          const targetName = g.agents.find(t => t.id === aiUpdate.targetId)?.name || 'someone';
+                          updated.aiConversations = [...(a.aiConversations || []).slice(-9), {
+                            with: targetName,
+                            message: decision.dialogue,
+                            time: g.time
+                          }];
+                        }
+                        return updated;
+                      })
+                    }));
+                  }
+                });
 
           // -- ACTION EXECUTION --
           
@@ -326,9 +390,18 @@ function App() {
                if (tFloraIdx !== -1) {
                    const f = flora[tFloraIdx];
                    if (f.resourceYield) {
+                       const invCount = Object.values(updatedAgent.inventory || {}).reduce((a,b)=>a+b,0);
+                       if (invCount >= MAX_INVENTORY_SIZE) {
+                           updatedAgent.currentActionLabel = "Inventory full";
+                           return;
+                       }
                        if ((f.resourcesLeft||0) > 0) {
                            updatedAgent.inventory[f.resourceYield] = (updatedAgent.inventory[f.resourceYield]||0) + 1;
+                           if (f.resourceYield === 'WOOD') {
+                             updatedAgent.inventory['STICK'] = (updatedAgent.inventory['STICK'] || 0) + 1;
+                           }
                            f.resourcesLeft = (f.resourcesLeft||0) - 1;
+                           recordActionMemory(updatedAgent, f.resourceYield, 'GATHER', 10);
                            logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} gathered ${f.resourceYield}`});
                            audioManager.playBuild();
                        }
@@ -336,10 +409,11 @@ function App() {
                        updatedAgent.needs.hunger = Math.min(100, updatedAgent.needs.hunger + 20);
                        f.resourcesLeft = 0; 
                        updatedAgent = learnActionOutcome(updatedAgent, f.type, 'EAT', 50);
+                       recordActionMemory(updatedAgent, f.type, 'EAT', 15);
                        logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} ate ${f.type}`});
                    }
                }
-               else if (tFaunaIdx !== -1) {
+                else if (tFaunaIdx !== -1) {
                    const animal = activeFauna[tFaunaIdx];
                    const hunting = animal.isAggressive || (updatedAgent.currentActionLabel || '').toLowerCase().includes('hunt');
                    if (!animal.isAggressive && !animal.isTamed && !hunting) {
@@ -349,28 +423,84 @@ function App() {
                        updatedAgent.neuro.oxytocin += 20;
                        logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} tamed a ${animal.type}!`});
                    } else {
-                       const tool = updatedAgent.equippedTool || (updatedAgent.inventory['SPEAR'] ? 'SPEAR' : updatedAgent.inventory['STONE_AXE'] ? 'STONE_AXE' : undefined);
-                       const dmg = tool === 'SPEAR' ? 50 : tool === 'STONE_AXE' ? 40 : 20;
+                       const hasStick = (updatedAgent.inventory['STICK'] || 0) > 0;
+                       const tool = updatedAgent.equippedTool || (updatedAgent.inventory['SPEAR'] ? 'SPEAR' : updatedAgent.inventory['STONE_AXE'] ? 'STONE_AXE' : hasStick ? 'STICK' : undefined);
+                       if (!tool) {
+                           const tree = flora.filter(f => f.resourceYield === 'WOOD' && (f.resourcesLeft || 0) > 0).sort((a,b) => dist(updatedAgent.position, a.position) - dist(updatedAgent.position, b.position))[0];
+                           if (tree) {
+                             updatedAgent.state = AgentState.MOVING;
+                             updatedAgent.targetPosition = tree.position;
+                             updatedAgent.targetId = tree.id;
+                             updatedAgent.currentActionLabel = "Need a stick to hunt";
+                           }
+                           return;
+                       }
+                       const dmg = tool === 'SPEAR' ? 50 : tool === 'STONE_AXE' ? 40 : tool === 'STICK' ? 25 : 20;
                        animal.health -= dmg;
+                       if (tool === 'STICK' && hasStick) {
+                         updatedAgent.inventory['STICK'] = Math.max(0, (updatedAgent.inventory['STICK'] || 0) - 1);
+                       }
                        updatedAgent.neuro.adrenaline = Math.min(100, updatedAgent.neuro.adrenaline + 5);
                        logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} attacked a ${animal.type}${tool ? ' with ' + tool : ''}`});
                        if (animal.health <= 0) {
                            faunaToRemove.push(animal.id);
-                           updatedAgent.inventory['MEAT'] = (updatedAgent.inventory['MEAT'] || 0) + 2;
-                           updatedAgent.needs.hunger = Math.min(100, updatedAgent.needs.hunger + 25);
-                           logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} hunted a ${animal.type} and gathered meat.`});
+                           const meatYield = animal.meat ?? 3;
+                           updatedAgent.inventory['MEAT'] = (updatedAgent.inventory['MEAT'] || 0) + meatYield;
+                           updatedAgent.currentActionLabel = "Harvested raw meat";
+                           logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} hunted a ${animal.type} and gathered ${meatYield} meat.`});
                            governance.cohesion = Math.min(100, governance.cohesion + 1);
+                           flora.push({
+                             id: generateId(),
+                             type: 'RESOURCE_BONE',
+                             position: { ...animal.position },
+                             scale: 0.4,
+                             isEdible: false,
+                             isPoisonous: false,
+                             nutritionValue: 0,
+                             resourceYield: 'BONE',
+                             resourcesLeft: 2,
+                             maxResources: 2,
+                             radius: 0.3,
+                             health: 100
+                           });
+                           recordActionMemory(updatedAgent, animal.type, 'HUNT', 20);
                        }
-                   }
-               }
-               else if (targetId === 'BUILD_HOUSE_SITE') {
-                   if (updatedAgent.inventory['WOOD']>=4 && updatedAgent.inventory['STONE']>=2 && updatedAgent.inventory['MUD']>=2) {
-                       buildings.push({ id: generateId(), position: { ...updatedAgent.position }, type: 'HOUSE', ownerId: updatedAgent.id, scale: 1, radius: 2, health: 100 });
-                       updatedAgent.inventory['WOOD']-=4; updatedAgent.inventory['STONE']-=2; updatedAgent.inventory['MUD']-=2;
+                    }
+                }
+               else if (targetId.startsWith('BUILD_HOUSE_SITE')) {
+                   const parts = targetId.split(':');
+                   const ownerId = parts[1] || updatedAgent.id;
+                   const required = { WOOD: 4, STONE: 2, MUD: 2 };
+
+                   // Check if THIS agent has enough materials
+                   const wood = updatedAgent.inventory['WOOD'] || 0;
+                   const stone = updatedAgent.inventory['STONE'] || 0;
+                   const mud = updatedAgent.inventory['MUD'] || 0;
+
+                   if (wood >= required.WOOD && stone >= required.STONE && mud >= required.MUD) {
+                       // Build the house!
+                       updatedAgent.inventory['WOOD'] = (updatedAgent.inventory['WOOD'] || 0) - required.WOOD;
+                       updatedAgent.inventory['STONE'] = (updatedAgent.inventory['STONE'] || 0) - required.STONE;
+                       updatedAgent.inventory['MUD'] = (updatedAgent.inventory['MUD'] || 0) - required.MUD;
+
+                       buildings.push({
+                         id: generateId(),
+                         position: { ...updatedAgent.position },
+                         type: 'HOUSE',
+                         ownerId,
+                         scale: 1,
+                         radius: 2,
+                         health: 100
+                       });
+
                        updatedAgent.neuro.serotonin += 50;
+                       updatedAgent.neuro.dopamine += 30;
                        audioManager.playBuild();
-                       logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} constructed a HOUSE!`});
-                       governance.cohesion = Math.min(100, governance.cohesion + 2);
+                       logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} built a HOUSE!`});
+                       governance.cohesion = Math.min(100, governance.cohesion + 5);
+                       updatedAgent.currentActionLabel = "Built my house!";
+                   } else {
+                       updatedAgent.currentActionLabel = `Building house... need: ${4-wood}W ${2-stone}S ${2-mud}M`;
                    }
                }
                else if (targetId === 'BUILD_CAMPFIRE' && updatedAgent.inventory['WOOD'] >= 2) {
@@ -382,6 +512,70 @@ function App() {
                   audioManager.playBuild();
                   logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} built a fire!`});
                   governance.cohesion = Math.min(100, governance.cohesion + 1);
+              }
+              else if (targetId === 'COOK_MEAT') {
+                  const nearFire = buildings.some(b => b.type === 'CAMPFIRE' && dist(b.position, updatedAgent.position) < 4);
+                  if ((updatedAgent.inventory['MEAT'] || 0) > 0 && nearFire) {
+                      updatedAgent.inventory['MEAT'] -= 1;
+                      updatedAgent.needs.hunger = Math.min(100, updatedAgent.needs.hunger + 35);
+                      updatedAgent.currentActionLabel = "Cooked and ate meat";
+                      logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} cooked meat over the fire.`});
+                      recordActionMemory(updatedAgent, 'MEAT_COOKED', 'EAT', 25);
+                  } else if (!nearFire) {
+                      updatedAgent.currentActionLabel = "Need a fire to cook meat";
+                  }
+              }
+              else if (targetId === 'FORAGE_SEEDS') {
+                  updatedAgent.inventory['SEEDS'] = (updatedAgent.inventory['SEEDS'] || 0) + 1;
+                  updatedAgent.currentActionLabel = "Found seeds";
+                  logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} foraged seeds.`});
+              }
+              else if (targetId === 'PLANT_SEEDS') {
+                  if ((updatedAgent.inventory['SEEDS'] || 0) > 0) {
+                    updatedAgent.inventory['SEEDS'] -= 1;
+                    const x = updatedAgent.position.x;
+                    const z = updatedAgent.position.z;
+                    const y = getTerrainHeight(x, z);
+                    flora.push({
+                      id: generateId(),
+                      type: 'FARM_CROP',
+                      position: { x, y, z },
+                      scale: 0.8,
+                      growthStage: 0,
+                      growthTimer: 0,
+                      regrowTicks: 400,
+                      isEdible: true,
+                      isPoisonous: false,
+                      nutritionValue: 20,
+                      resourceYield: undefined,
+                      resourcesLeft: 1,
+                      maxResources: 1,
+                      radius: 0.6,
+                      health: 100
+                    });
+                    updatedAgent.currentActionLabel = "Planted a crop";
+                    recordActionMemory(updatedAgent, 'FARM_CROP', 'PLANT', 10);
+                    logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} planted seeds.`});
+                  } else {
+                    updatedAgent.currentActionLabel = "No seeds to plant";
+                  }
+              }
+              else if (targetId === 'DIG_TERRAIN') {
+                  const size = 1 + Math.random() * 1.5;
+                  const x = updatedAgent.position.x;
+                  const z = updatedAgent.position.z;
+                  const y = getTerrainHeight(x, z);
+                  water.push({
+                    id: `puddle_dig_${generateId()}`,
+                    kind: 'PUDDLE',
+                    position: { x, y: y + 0.02, z },
+                    size,
+                    length: size * 0.9,
+                    ttl: 900
+                  });
+                  updatedAgent.needs.energy = Math.max(0, updatedAgent.needs.energy - 2);
+                  updatedAgent.currentActionLabel = "Dug a small pit";
+                  logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} dug into the ground.`});
               }
               else if (targetId === 'CRAFT_SPEAR' && updatedAgent.inventory['WOOD'] >= 1 && updatedAgent.inventory['STONE'] >= 1) {
                   updatedAgent.inventory['WOOD'] -= 1; updatedAgent.inventory['STONE'] -= 1;
@@ -397,10 +591,65 @@ function App() {
                   updatedAgent.currentActionLabel = "Crafted a stone axe";
                   logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} crafted a STONE AXE.`});
               }
+              else if (targetId === 'CREATE_STORAGE') {
+                  const crateId = generateId();
+                  const toStore = ['WOOD', 'STONE', 'MUD', 'MEAT', 'SEEDS'];
+                  const crateInventory: Record<string, number> = {};
+                  toStore.forEach(k => {
+                      if ((updatedAgent.inventory[k] || 0) > 0) {
+                          crateInventory[k] = updatedAgent.inventory[k];
+                          updatedAgent.inventory[k] = 0;
+                      }
+                  });
+                  if (Object.keys(crateInventory).length > 0) {
+                       buildings.push({ 
+                           id: crateId, 
+                           position: { ...updatedAgent.position, y: getTerrainHeight(updatedAgent.position.x, updatedAgent.position.z) + 0.05 }, 
+                           type: 'CRATE', 
+                           ownerId: updatedAgent.id, 
+                           scale: 1, 
+                           radius: 1, 
+                           health: 100, 
+                           inventory: crateInventory 
+                       });
+                       logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} created a resource pile.`});
+                       audioManager.playBuild();
+                  } else {
+                      updatedAgent.currentActionLabel = "Nothing to store";
+                  }
+              }
+              else if (buildings.some(b => b.id === targetId && b.type === 'CRATE')) {
+                   const b = buildings.find(b => b.id === targetId && b.type === 'CRATE');
+                   if (b) {
+                        const toStore = ['WOOD', 'STONE', 'MUD', 'MEAT', 'SEEDS'];
+                        let storedAny = false;
+                        toStore.forEach(k => {
+                            if ((updatedAgent.inventory[k] || 0) > 0) {
+                                b.inventory = b.inventory || {};
+                                b.inventory[k] = (b.inventory[k] || 0) + updatedAgent.inventory[k];
+                                updatedAgent.inventory[k] = 0;
+                                storedAny = true;
+                            }
+                        });
+                        if (storedAny) {
+                            logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} added to resource pile.`});
+                            updatedAgent.currentActionLabel = "Stored resources";
+                            audioManager.playBuild();
+                        }
+                   }
+              }
               else if (targetId === 'WATER_SOURCE') {
                   updatedAgent.needs.thirst = Math.min(100, updatedAgent.needs.thirst + 40);
                   updatedAgent.currentActionLabel = "Drinking water";
                   logs.push({id: generateId(), timestamp: nextTime, type: 'AGENT', message: `${updatedAgent.name} drank fresh water.`});
+              }
+              else if (targetId === 'WATER_CROP') {
+                  const nearbyCrops = flora.filter(f => f.type === 'FARM_CROP' && dist(f.position, updatedAgent.position) < 3);
+                  nearbyCrops.forEach(c => {
+                    (c as any).lastWateredTick = nextTime;
+                  });
+                  updatedAgent.currentActionLabel = "Watered crops";
+                  logs.push({id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} watered crops.`});
               }
           };
 
@@ -436,7 +685,7 @@ function App() {
           }
 
           // Check if target still exists (prevent stuck state)
-          if (updatedAgent.targetId && !updatedAgent.targetId.startsWith('BUILD_')) {
+          if (updatedAgent.targetId && !updatedAgent.targetId.startsWith('BUILD_') && !['COOK_MEAT','DIG_TERRAIN'].includes(updatedAgent.targetId)) {
                const exists = flora.some(f => f.id === updatedAgent.targetId && (f.resourcesLeft || 0) > 0)
                  || activeFauna.some(f => f.id === updatedAgent.targetId)
                  || updatedAgent.targetId === 'WATER_SOURCE';
@@ -457,20 +706,49 @@ function App() {
                updatedAgent.rotation = Math.atan2(partner.position.x - updatedAgent.position.x, partner.position.z - updatedAgent.position.z);
 
                // If close enough, trigger response from partner
-               if (d < 3 && updatedAgent.chatBubble && partner.state === AgentState.IDLE) {
-                 // Partner responds
-                 const responses = ["Hello!", "Nice to see you!", "How are you?", "Interesting...", "I agree!", "Let's work together!"];
-                 partner.chatBubble = responses[Math.floor(Math.random() * responses.length)];
-                 partner.lastChatTime = nextTime;
-                 partner.state = AgentState.SOCIALIZING;
-                 partner.targetId = updatedAgent.id;
-                 partner.rotation = Math.atan2(updatedAgent.position.x - partner.position.x, updatedAgent.position.z - partner.position.z);
-                 // Boost social needs for both
-                 updatedAgent.needs.social = Math.min(100, updatedAgent.needs.social + 10);
-                 partner.needs.social = Math.min(100, partner.needs.social + 10);
-                 governance.cohesion = Math.min(100, governance.cohesion + 0.5);
-                 logs.push({id: generateId(), timestamp: nextTime, type: 'DIALOGUE', message: `${updatedAgent.name} and ${partner.name} are chatting`});
-               }
+               if (d < 3) {
+                  if (!updatedAgent.chatBubble) {
+                    updatedAgent.chatBubble = CHAT_TEMPLATES.GREETING[Math.floor(Math.random() * CHAT_TEMPLATES.GREETING.length)];
+                    updatedAgent.lastChatTime = nextTime;
+                  }
+                  if (partner.state === AgentState.IDLE || partner.state === AgentState.SOCIALIZING) {
+                    const responses = [...CHAT_TEMPLATES.FRIENDLY, ...CHAT_TEMPLATES.GOSSIP];
+                    partner.chatBubble = responses[Math.floor(Math.random() * responses.length)];
+                    partner.lastChatTime = nextTime;
+                    partner.state = AgentState.SOCIALIZING;
+                    partner.targetId = updatedAgent.id;
+                    partner.rotation = Math.atan2(updatedAgent.position.x - partner.position.x, updatedAgent.position.z - partner.position.z);
+                    // Boost social needs for both
+                    updatedAgent.needs.social = Math.min(100, updatedAgent.needs.social + 12);
+                    partner.needs.social = Math.min(100, partner.needs.social + 12);
+                    governance.cohesion = Math.min(100, governance.cohesion + 0.5);
+                    logs.push({id: generateId(), timestamp: nextTime, type: 'DIALOGUE', message: `${updatedAgent.name} and ${partner.name} are chatting`});
+
+                    // Mating chance
+                    if (Math.random() < 0.02 && !updatedAgent.caringEggId && !partner.caringEggId) {
+                      const eggId = generateId();
+                      const eggPos = {
+                        x: (updatedAgent.position.x + partner.position.x) / 2,
+                        y: getTerrainHeight((updatedAgent.position.x + partner.position.x)/2, (updatedAgent.position.z + partner.position.z)/2),
+                        z: (updatedAgent.position.z + partner.position.z) / 2
+                      };
+                      eggs.push({
+                        id: eggId,
+                        position: eggPos,
+                        hatchAt: nextTime + 400,
+                        parents: [
+                          { id: updatedAgent.id, color: updatedAgent.color, hairColor: updatedAgent.hairColor, clothesColor: updatedAgent.clothesColor },
+                          { id: partner.id, color: partner.color, hairColor: partner.hairColor, clothesColor: partner.clothesColor }
+                        ]
+                      });
+                      updatedAgent.caringEggId = eggId;
+                      partner.caringEggId = eggId;
+                      updatedAgent.currentActionLabel = "Protecting egg";
+                      partner.currentActionLabel = "Protecting egg";
+                      logs.push({ id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `${updatedAgent.name} and ${partner.name} created an egg.` });
+                    }
+                  }
+                }
 
                // Disease spread
                if (partner.sickness && partner.sickness !== 'NONE' && updatedAgent.sickness === 'NONE' && Math.random() < 0.05) {
@@ -524,10 +802,95 @@ function App() {
           return updatedAgent;
         });
 
-        // Filter out depleted flora
-        flora = flora.filter(f => !f.isOnFire && (f.resourcesLeft || 0) > 0);
+        // Eggs hatching
+        const newAgents: Agent[] = [];
+        eggs = eggs.filter(e => {
+          if (nextTime >= e.hatchAt) {
+            const parentA = e.parents[0];
+            const parentB = e.parents[1];
+            const babyColor = mixColor(parentA.color, parentB.color);
+            const babyHair = mixColor(parentA.hairColor, parentB.hairColor);
+            const babyClothes = mixColor(parentA.clothesColor, parentB.clothesColor);
+            newAgents.push({
+              id: generateId(),
+              name: `Hatchling_${generateId().slice(0,4)}`,
+              color: babyClothes,
+              hairColor: babyHair,
+              clothesColor: babyClothes,
+              ageDays: 0,
+              sex: Math.random() > 0.5 ? 'MALE' : 'FEMALE',
+              position: { ...e.position, y: getTerrainHeight(e.position.x, e.position.z) },
+              rotation: 0,
+              targetPosition: null,
+              state: AgentState.IDLE,
+              needs: { hunger: 80, thirst: 80, energy: 80, social: 50, fun: 50, health: 100, temperature: 70 },
+              neuro: { dopamine: 60, serotonin: 60, adrenaline: 10, oxytocin: 50, cortisol: 20 },
+              actionMemories: [],
+              personality: { openness: 0.5, conscientiousness: 0.5, extraversion: 0.5, agreeableness: 0.5, neuroticism: 0.5, bio: "A newborn." },
+              memories: [],
+              relationships: {},
+              inventory: {},
+              currentActionLabel: "Just hatched",
+              aiThoughts: [],
+              aiConversations: [],
+              velocity: { x:0, y:0, z:0 },
+              radius: 0.5,
+              feelings: [],
+              mood: 'neutral'
+            });
+            return false;
+          }
+          return true;
+        });
+        activeAgents = nextAgents;
+        if (newAgents.length) {
+          activeAgents = activeAgents.concat(newAgents);
+        }
 
-        return { ...prev, time: nextTime, dayTime: nextDayTime, day: nextDay, season: nextSeason, weather: nextWeather, agents: nextAgents, fauna: nextFauna, flora, buildings, water, governance, logs: logs.slice(-50) };
+        // Barter trades between socializing pairs
+        const tradedPairs = new Set<string>();
+        activeAgents.forEach(agent => {
+          if (agent.state !== AgentState.SOCIALIZING || !agent.targetId) return;
+          const partner = activeAgents.find(a => a.id === agent.targetId);
+          if (!partner || partner.state !== AgentState.SOCIALIZING || partner.targetId !== agent.id) return;
+          if (dist(agent.position, partner.position) > 3) return;
+          const key = [agent.id, partner.id].sort().join('_');
+          if (tradedPairs.has(key)) return;
+          const trade = pickTrade(agent, partner, buildings);
+          if (trade) {
+            agent.inventory[trade.giveA] = Math.max(0, (agent.inventory[trade.giveA] || 0) - 1);
+            partner.inventory[trade.giveA] = (partner.inventory[trade.giveA] || 0) + 1;
+            partner.inventory[trade.giveB] = Math.max(0, (partner.inventory[trade.giveB] || 0) - 1);
+            agent.inventory[trade.giveB] = (agent.inventory[trade.giveB] || 0) + 1;
+            agent.currentActionLabel = `Traded ${trade.giveA} for ${trade.giveB}`;
+            partner.currentActionLabel = `Traded ${trade.giveB} for ${trade.giveA}`;
+            agent.relationships = { ...agent.relationships, [partner.id]: (agent.relationships[partner.id] || 0) + 2 };
+            partner.relationships = { ...partner.relationships, [agent.id]: (partner.relationships[agent.id] || 0) + 2 };
+            logs.push({ id: generateId(), timestamp: nextTime, type: 'DIALOGUE', message: `${agent.name} traded ${trade.giveA} with ${partner.name} for ${trade.giveB}` });
+            tradedPairs.add(key);
+          }
+        });
+
+        // Crop growth/regrowth
+        const rainingNow = nextWeather === 'RAIN' || nextWeather === 'STORM';
+        flora = flora.map(f => {
+          if (f.type === 'FARM_CROP') {
+            const regrow = f.regrowTicks ?? 400;
+            const nextTimer = (f.growthTimer || 0) + (rainingNow ? 2 : 0);
+            let growthStage = f.growthStage || 0;
+            // Crops only advance if watered or rained on
+            const canGrow = rainingNow || (f as any).lastWateredTick >= (nextTime - 80);
+            const timerProgress = canGrow ? nextTimer : (f.growthTimer || 0);
+            if (growthStage < 2 && timerProgress >= regrow) growthStage = 2;
+            else if (growthStage < 1 && timerProgress >= regrow * 0.5) growthStage = 1;
+            const harvestable = growthStage >= 2;
+            const resourcesLeft = harvestable ? 1 : f.resourcesLeft || 0;
+            return { ...f, growthTimer: timerProgress, growthStage, resourcesLeft };
+          }
+          return f;
+        }).filter(f => !f.isOnFire && ((f.resourcesLeft || 0) > 0 || f.type === 'FARM_CROP'));
+
+        return { ...prev, time: nextTime, dayTime: nextDayTime, day: nextDay, season: nextSeason, weather: nextWeather, agents: activeAgents, fauna: nextFauna, flora, buildings, water, eggs, governance, logs: logs.slice(-50) };
       });
     }, 250);
     return () => clearInterval(interval);
@@ -541,6 +904,7 @@ function App() {
         flora={gameState.flora}
         fauna={gameState.fauna}
         water={gameState.water}
+        places={gameState.places}
         onSelectAgent={(id) => setGameState(prev => ({ ...prev, selectedAgentId: id }))}
         selectedAgentId={gameState.selectedAgentId}
         dayTime={gameState.dayTime}
