@@ -45,12 +45,18 @@ const buildPrompt = (agent: Agent, gs: GameState): string => {
 
   const nearAgents = gs.agents
     .filter(a => a.id !== agent.id && getDist(a.position, agent.position) < vis)
-    .slice(0, 4)
+    .slice(0, 5)
     .map(a => {
       const d = Math.round(getDist(a.position, agent.position));
       const rel = agent.relationships[a.id] || 0;
-      const label = rel > 50 ? 'friend' : rel > 20 ? 'acquaintance' : rel < -20 ? 'rival' : 'stranger';
-      return `${a.name}[${a.id.slice(0, 5)}](${d}m,${label},doing:${a.state})`;
+      const relType = agent.relationshipTypes[a.id] || (rel > 50 ? 'friend' : rel > 20 ? 'acquaintance' : rel < -20 ? 'rival' : 'stranger');
+      const extras: string[] = [];
+      if (a.id === agent.partnerId) extras.push('PARTNER');
+      if (agent.children.includes(a.id)) extras.push('MY_CHILD');
+      if (a.children.includes(agent.id)) extras.push('MY_PARENT');
+      if (a.needs.hunger < 30) extras.push('hungry');
+      if (a.lifeStage === 'CHILD') extras.push('child');
+      return `${a.name}[${a.id.slice(0, 5)}](${d}m,${relType}${extras.length ? ',' + extras.join(',') : ''},doing:${a.state})`;
     }).join(', ');
 
   const nearBuildings = gs.buildings
@@ -85,12 +91,51 @@ const buildPrompt = (agent: Agent, gs: GameState): string => {
 
   const inv = Object.entries(agent.inventory).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(', ') || 'empty';
   const recentThoughts = (agent.aiThoughts || []).slice(-2).join('; ');
-
   const isNight = gs.dayTime < 6 || gs.dayTime > 19;
 
-  return `You are ${agent.name}, an Aetheri creature. ${agent.personality.bio}
-Traits: ${agent.personality.courage > 0.6 ? 'Brave' : 'Cautious'}, ${agent.personality.creativity > 0.6 ? 'Creative' : 'Practical'}, ${agent.personality.extraversion > 0.6 ? 'Social' : 'Solitary'}
+  let familyInfo = '';
+  if (agent.partnerId) {
+    const partner = gs.agents.find(a => a.id === agent.partnerId);
+    familyInfo += `Partner: ${partner?.name || 'unknown'}. `;
+  }
+  if (agent.children.length > 0) {
+    const childNames = agent.children.map(cid => gs.agents.find(a => a.id === cid)?.name).filter(Boolean);
+    if (childNames.length > 0) familyInfo += `Children: ${childNames.join(', ')}. `;
+  }
+  if (agent.isPregnant) familyInfo += 'You are expecting a baby! ';
 
+  const activeEvents = gs.activeEvents?.map(e => `${e.name}: ${e.description}`).join('; ') || '';
+
+  const lifeContext = agent.lifeStage === 'CHILD'
+    ? 'You are a CHILD - you can play, learn, and explore but cannot mate or research.'
+    : agent.lifeStage === 'ELDER'
+    ? 'You are an ELDER - you are wise, prefer to teach and share knowledge.'
+    : '';
+
+  let courtActions = '';
+  if (agent.lifeStage === 'ADULT' && !agent.partnerId) {
+    const prospects = gs.agents.filter(a =>
+      a.id !== agent.id && a.sex !== agent.sex && a.lifeStage === 'ADULT' && !a.partnerId &&
+      getDist(a.position, agent.position) < vis && (agent.relationships[a.id] || 0) >= 40
+    );
+    if (prospects.length > 0) {
+      courtActions = `\n  COURT <targetId> - court ${prospects.map(p => `${p.name}[${p.id.slice(0, 5)}]`).join('/')} to become partners`;
+    }
+  }
+
+  let mateAction = '';
+  if (agent.partnerId && agent.lifeStage === 'ADULT') {
+    const partner = gs.agents.find(a => a.id === agent.partnerId);
+    if (partner && getDist(agent.position, partner.position) < vis) {
+      mateAction = `\n  MATE - spend time with your partner ${partner.name}`;
+    }
+  }
+
+  return `You are ${agent.name}, an Aetheri creature. ${agent.personality.bio}
+${lifeContext}
+Traits: ${agent.personality.courage > 0.6 ? 'Brave' : 'Cautious'}, ${agent.personality.creativity > 0.6 ? 'Creative' : 'Practical'}, ${agent.personality.extraversion > 0.6 ? 'Social' : 'Solitary'}, ${agent.personality.agreeableness > 0.6 ? 'Kind' : 'Independent'}
+Life stage: ${agent.lifeStage} | Age: ${agent.ageDays} days | Sex: ${agent.sex}
+${familyInfo}
 STATUS:
   Health:${Math.round(agent.needs.health)} Hunger:${Math.round(agent.needs.hunger)} Energy:${Math.round(agent.needs.energy)} Thirst:${Math.round(agent.needs.thirst)} Temp:${Math.round(agent.needs.temperature)} Safety:${Math.round(agent.needs.safety)} Social:${Math.round(agent.needs.social)} Curiosity:${Math.round(agent.needs.curiosity)}
   Mood: ${agent.mood} | Feelings: ${agent.feelings.join(', ') || 'neutral'}
@@ -100,12 +145,13 @@ STATUS:
 
 ENVIRONMENT:
   ${isNight ? 'NIGHT TIME - dark and cold' : `Day, ~${Math.floor(gs.dayTime)}:00`} | Day ${gs.day} | ${gs.season} | ${gs.weather}
-  Era: ${gs.currentEra}
+  Era: ${gs.currentEra} | Population: ${gs.agents.length}
   Resources nearby: ${nearFlora || 'nothing'}
   Animals: ${nearFauna || 'none'}
   Others: ${nearAgents || 'alone'}
   Buildings: ${nearBuildings || 'none'}
   Water: ${nearWater || 'none nearby'}
+${activeEvents ? `  Active Events: ${activeEvents}` : ''}
 ${incomingSpeaker ? `\n  "${incomingSpeaker.name}" says to you: "${incomingSpeaker.chatBubble}"` : ''}
 ${recentThoughts ? `\n  Recent thoughts: ${recentThoughts}` : ''}
 
@@ -122,6 +168,10 @@ AVAILABLE ACTIONS:
   EXPLORE - wander to discover new things
   RESEARCH - experiment to discover new technology
   FLEE - run from danger
+  DEFEND - protect nearby allies from threats
+  SHARE_FOOD <targetId> - give food to a hungry Aetheri
+  FIGHT_AGENT <targetId> - fight a rival Aetheri${courtActions}${mateAction}
+  ${agent.lifeStage === 'CHILD' ? 'PLAY - play with other children' : ''}
   WANDER - walk around idly
 
 DISCOVERABLE TECHNOLOGIES:
@@ -129,7 +179,7 @@ DISCOVERABLE TECHNOLOGIES:
 
 IMPORTANT: To discover technology, choose RESEARCH and set discoveryAttempt to the EXACT tech ID (e.g. FIRE, STONE_KNAPPING, COOKING, etc). You need the right materials/conditions nearby.
 
-Decide your next action. Think about survival first, then advancement.
+Decide your next action. Think about survival first, then relationships and advancement.
 Respond ONLY with JSON:
 {"action":"<ACTION>","target":"<id or item>","thought":"<your inner monologue, max 30 words>","say":"<what you say aloud or null>","discoveryAttempt":"<TECH_ID or null>","placeName":"<name for landmark or null>"}`;
 };
@@ -325,6 +375,67 @@ export const applyAIDecision = (agent: Agent, decision: AgentDecision, gs: GameS
         y: 0,
         z: agent.position.z + (Math.random() - 0.5) * 25,
       };
+      break;
+    }
+    case 'COURT': {
+      const courtTarget = decision.targetId
+        ? gs.agents.find(a => a.id.startsWith(decision.targetId?.slice(0, 5) || 'X'))
+        : undefined;
+      if (courtTarget) {
+        update.state = AgentState.MOVING;
+        update.targetPosition = courtTarget.position;
+        update.targetId = `COURT:${courtTarget.id}`;
+      }
+      break;
+    }
+    case 'MATE': {
+      if (agent.partnerId) {
+        const partner = gs.agents.find(a => a.id === agent.partnerId);
+        if (partner) {
+          update.state = AgentState.MOVING;
+          update.targetPosition = partner.position;
+          update.targetId = `MATE:${partner.id}`;
+        }
+      }
+      break;
+    }
+    case 'FIGHT_AGENT': {
+      const fightTarget = decision.targetId
+        ? gs.agents.find(a => a.id.startsWith(decision.targetId?.slice(0, 5) || 'X'))
+        : undefined;
+      if (fightTarget) {
+        update.state = AgentState.MOVING;
+        update.targetPosition = fightTarget.position;
+        update.targetId = `FIGHT_AGENT:${fightTarget.id}`;
+      }
+      break;
+    }
+    case 'SHARE_FOOD': {
+      const shareTarget = decision.targetId
+        ? gs.agents.find(a => a.id.startsWith(decision.targetId?.slice(0, 5) || 'X'))
+        : gs.agents.filter(a => a.id !== agent.id && a.needs.hunger < 40).sort((a, b) => getDist(a.position, agent.position) - getDist(b.position, agent.position))[0];
+      if (shareTarget) {
+        update.state = AgentState.MOVING;
+        update.targetPosition = shareTarget.position;
+        update.targetId = 'SHARE_FOOD';
+      }
+      break;
+    }
+    case 'DEFEND': {
+      update.state = AgentState.DEFENDING;
+      const threat = gs.fauna.find(f => f.isAggressive && getDist(f.position, agent.position) < 15);
+      if (threat) {
+        update.targetPosition = threat.position;
+        update.targetId = threat.id;
+      }
+      break;
+    }
+    case 'PLAY': {
+      if (agent.lifeStage === 'CHILD') {
+        update.state = AgentState.PLAYING;
+        const playmate = gs.agents.find(a => a.id !== agent.id && getDist(a.position, agent.position) < 10);
+        if (playmate) update.targetId = playmate.id;
+      }
       break;
     }
     case 'WANDER':

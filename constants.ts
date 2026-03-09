@@ -1,4 +1,4 @@
-import { Agent, AgentState, Flora, Fauna, FaunaType, Season, WaterPatch, Technology, CraftingRecipe, BuildingRecipe, Era } from "./types";
+import { Agent, AgentState, Flora, Fauna, FaunaType, Season, WaterPatch, Technology, CraftingRecipe, BuildingRecipe, Era, Settlement, ActiveEvent, PopulationSnapshot } from "./types";
 
 export const WORLD_SIZE = 160;
 export const TICK_RATE_MS = 800;
@@ -310,7 +310,7 @@ const createAgent = (id: string, index: number): Agent => {
     color: MARKING_COLORS[index % MARKING_COLORS.length],
     skinTone: SKIN_TONES[index % SKIN_TONES.length],
     markings: MARKING_COLORS[(index + 3) % MARKING_COLORS.length],
-    ageDays: Math.floor(18 + Math.random() * 15) * 365,
+    ageDays: Math.floor(20 + Math.random() * 15),
     sex,
     position: { x, y: getTerrainHeight(x, z), z },
     rotation: Math.random() * Math.PI * 2,
@@ -346,6 +346,7 @@ const createAgent = (id: string, index: number): Agent => {
     memories: [],
     actionMemories: [],
     relationships: {},
+    relationshipTypes: {},
     inventory: {},
     knownTechnologies: [],
     currentActionLabel: 'Awakening...',
@@ -359,6 +360,12 @@ const createAgent = (id: string, index: number): Agent => {
     sicknessDuration: 0,
     skillLevels: {},
     equippedTool: undefined,
+    children: [],
+    generation: 0,
+    isPregnant: false,
+    pregnancyTimer: 0,
+    lifeStage: 'ADULT',
+    birthDay: 0,
   };
 };
 
@@ -515,3 +522,32 @@ export const generateWater = (): WaterPatch[] => {
 export const INITIAL_FLORA = generateFlora(350);
 export const INITIAL_FAUNA = generateFauna(45);
 export const INITIAL_WATER = generateWater();
+
+const SETTLEMENT_PREFIXES = ['Aether', 'Glow', 'Stone', 'Ember', 'Dawn', 'Dusk', 'Moon', 'Sun', 'Star', 'Mist', 'Shadow', 'Bright', 'Crystal', 'Iron', 'Silver', 'Golden', 'Frost', 'Storm', 'Thunder', 'Flame'];
+const SETTLEMENT_SUFFIXES = ['haven', 'hold', 'rest', 'fall', 'reach', 'keep', 'vale', 'watch', 'peak', 'grove', 'dell', 'stead', 'hollow', 'crossing', 'hearth', 'gate', 'stone', 'ridge', 'brook', 'field'];
+
+export const generateSettlementName = (): string => {
+  return SETTLEMENT_PREFIXES[Math.floor(Math.random() * SETTLEMENT_PREFIXES.length)] +
+    SETTLEMENT_SUFFIXES[Math.floor(Math.random() * SETTLEMENT_SUFFIXES.length)];
+};
+
+const BABY_SYLLABLES_1 = ['Ae', 'Zy', 'Ka', 'Lu', 'Mi', 'No', 'Ri', 'Th', 'Va', 'Xe', 'Fy', 'Ga', 'Hy', 'Ja', 'Qu', 'Se', 'Ty', 'We', 'Or', 'El', 'Da', 'Ne', 'Pi', 'So', 'Vu'];
+const BABY_SYLLABLES_2 = ['ra', 'en', 'is', 'ax', 'on', 'el', 'yn', 'ia', 'os', 'um', 'al', 'ix', 'an', 'ek', 'il', 'ov', 'ur', 'et', 'ko', 'na'];
+const BABY_SYLLABLES_3 = ['th', 'n', 'x', 'a', 's', 'r', 'k', '', '', '', '', ''];
+
+export const generateBabyName = (parent1Name: string, parent2Name: string): string => {
+  if (Math.random() < 0.3) {
+    const s1 = parent1Name.substring(0, Math.ceil(parent1Name.length / 2));
+    const s2 = parent2Name.substring(Math.floor(parent2Name.length / 2));
+    return s1 + s2.toLowerCase();
+  }
+  return BABY_SYLLABLES_1[Math.floor(Math.random() * BABY_SYLLABLES_1.length)] +
+    BABY_SYLLABLES_2[Math.floor(Math.random() * BABY_SYLLABLES_2.length)] +
+    BABY_SYLLABLES_3[Math.floor(Math.random() * BABY_SYLLABLES_3.length)];
+};
+
+export const MAX_POPULATION = 20;
+export const CHILD_AGE_DAYS = 15;
+export const ELDER_AGE_DAYS = 60;
+export const MAX_AGE_DAYS = 85;
+export const PREGNANCY_DURATION = 200;

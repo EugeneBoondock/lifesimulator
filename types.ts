@@ -14,7 +14,13 @@ export enum AgentState {
   DRINKING = 'DRINKING',
   EXPLORING = 'EXPLORING',
   TEACHING = 'TEACHING',
-  RESEARCHING = 'RESEARCHING'
+  RESEARCHING = 'RESEARCHING',
+  COURTING = 'COURTING',
+  MATING = 'MATING',
+  PLAYING = 'PLAYING',
+  MOURNING = 'MOURNING',
+  CELEBRATING = 'CELEBRATING',
+  DEFENDING = 'DEFENDING'
 }
 
 export interface Vector3 {
@@ -57,7 +63,7 @@ export interface Memory {
   timestamp: number;
   description: string;
   importance: number;
-  type: 'event' | 'discovery' | 'social' | 'danger' | 'landmark';
+  type: 'event' | 'discovery' | 'social' | 'danger' | 'landmark' | 'family';
 }
 
 export interface ActionMemory {
@@ -68,6 +74,8 @@ export interface ActionMemory {
 }
 
 export type Era = 'PRIMITIVE' | 'STONE_AGE' | 'AGRICULTURAL' | 'BRONZE_AGE' | 'IRON_AGE';
+export type LifeStage = 'CHILD' | 'ADULT' | 'ELDER';
+export type RelationshipType = 'STRANGER' | 'ACQUAINTANCE' | 'FRIEND' | 'RIVAL' | 'PARTNER' | 'PARENT' | 'CHILD_REL' | 'SIBLING';
 
 export interface Technology {
   id: string;
@@ -87,6 +95,7 @@ export interface Agent {
   markings: string;
   ageDays: number;
   sex: 'MALE' | 'FEMALE';
+  lifeStage: LifeStage;
   position: Vector3;
   rotation: number;
   targetPosition: Vector3 | null;
@@ -98,6 +107,7 @@ export interface Agent {
   memories: Memory[];
   actionMemories: ActionMemory[];
   relationships: Record<string, number>;
+  relationshipTypes: Record<string, RelationshipType>;
   inventory: Record<string, number>;
   knownTechnologies: string[];
   currentActionLabel: string;
@@ -113,6 +123,15 @@ export interface Agent {
   sickness: 'NONE' | 'COLD' | 'FOOD_POISON' | 'INJURY';
   sicknessDuration: number;
   skillLevels: Record<string, number>;
+  parentIds?: [string, string];
+  partnerId?: string;
+  children: string[];
+  generation: number;
+  isPregnant: boolean;
+  pregnancyTimer: number;
+  settlementId?: string;
+  causeOfDeath?: string;
+  birthDay: number;
 }
 
 export type FloraType =
@@ -214,16 +233,44 @@ export interface NamedPlace {
   type: 'LANDMARK' | 'SETTLEMENT' | 'RESOURCE_SITE' | 'DANGER_ZONE' | 'SACRED';
 }
 
+export interface Settlement {
+  id: string;
+  name: string;
+  position: Vector3;
+  radius: number;
+  members: string[];
+  buildings: string[];
+  founded: number;
+  founderName: string;
+}
+
+export interface ActiveEvent {
+  id: string;
+  type: 'PREDATOR_WAVE' | 'RESOURCE_BOUNTY' | 'DISEASE_OUTBREAK' | 'EARTHQUAKE' | 'WILDFIRE' | 'METEOR' | 'DROUGHT' | 'MIGRATION' | 'FESTIVAL';
+  name: string;
+  description: string;
+  duration: number;
+  ticksRemaining: number;
+  affectedArea?: Vector3;
+  intensity: number;
+}
+
 export interface WorldEvent {
   id: string;
   timestamp: number;
-  type: 'SYSTEM' | 'AGENT' | 'DIALOGUE' | 'DISCOVERY' | 'DANGER' | 'ERA' | 'DEATH' | 'BIRTH';
+  type: 'SYSTEM' | 'AGENT' | 'DIALOGUE' | 'DISCOVERY' | 'DANGER' | 'ERA' | 'DEATH' | 'BIRTH' | 'SETTLEMENT' | 'EVENT' | 'RELATIONSHIP';
   message: string;
   importance?: number;
 }
 
 export type Season = 'SPRING' | 'SUMMER' | 'AUTUMN' | 'WINTER';
 export type Weather = 'CLEAR' | 'CLOUDY' | 'RAIN' | 'STORM' | 'SNOW' | 'FOG' | 'HEAT_WAVE';
+export type CameraMode = 'FREE' | 'FOLLOW' | 'CINEMATIC';
+
+export interface PopulationSnapshot {
+  time: number;
+  count: number;
+}
 
 export interface GameState {
   agents: Agent[];
@@ -246,6 +293,12 @@ export interface GameState {
   speed: number;
   selectedAgentId: string | null;
   populationPeak: number;
+  settlements: Settlement[];
+  activeEvents: ActiveEvent[];
+  cameraMode: CameraMode;
+  populationHistory: PopulationSnapshot[];
+  totalBirths: number;
+  totalDeaths: number;
 }
 
 export interface AgentDecision {

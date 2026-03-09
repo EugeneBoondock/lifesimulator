@@ -1,8 +1,8 @@
-import React, { useMemo, useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import React, { useMemo, useRef, useEffect } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Billboard, Text, Environment, SoftShadows, Sky } from '@react-three/drei';
 import * as THREE from 'three';
-import { Agent, Building, Flora, Fauna, Season, Weather, WaterPatch, NamedPlace } from '../types';
+import { Agent, Building, Flora, Fauna, Season, Weather, WaterPatch, NamedPlace, Settlement, ActiveEvent, Era, CameraMode } from '../types';
 import { WORLD_SIZE, getTerrainHeight, getBiome } from '../constants';
 import { FloraRenderer, FaunaRenderer, BuildingRenderer } from './Environment';
 import { CreatureModel } from './CreatureModel';
@@ -14,11 +14,15 @@ interface World3DProps {
   fauna: Fauna[];
   places: NamedPlace[];
   water: WaterPatch[];
+  settlements: Settlement[];
+  activeEvents: ActiveEvent[];
   onSelectAgent: (id: string) => void;
   selectedAgentId: string | null;
   dayTime: number;
   season: Season;
   weather: Weather;
+  currentEra: Era;
+  cameraMode: CameraMode;
 }
 
 const Terrain = ({ season }: { season: Season }) => {
@@ -98,17 +102,23 @@ const Terrain = ({ season }: { season: Season }) => {
   );
 };
 
-const WaterSurface: React.FC<{ patch: WaterPatch }> = ({ patch }) => {
+const AnimatedWater: React.FC<{ patch: WaterPatch }> = ({ patch }) => {
+  const meshRef = useRef<THREE.Mesh>(null);
   const isLake = patch.kind === 'LAKE';
-  const isRiver = patch.kind === 'RIVER';
   const width = isLake ? patch.size : (patch.length ?? patch.size);
   const height = isLake ? patch.size : patch.size;
   const rotation = patch.rotation ?? 0;
   const y = patch.position.y - 0.05;
 
+  useFrame(({ clock }) => {
+    if (meshRef.current) {
+      meshRef.current.position.y = y + Math.sin(clock.elapsedTime * 0.5 + patch.position.x) * 0.03;
+    }
+  });
+
   return (
     <group position={[patch.position.x, y, patch.position.z]} rotation={[0, rotation, 0]}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+      <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         {isLake ? (
           <circleGeometry args={[patch.size, 20]} />
         ) : (
@@ -117,13 +127,159 @@ const WaterSurface: React.FC<{ patch: WaterPatch }> = ({ patch }) => {
         <meshPhysicalMaterial
           color={isLake ? '#3da8c4' : '#4dc4e0'}
           transparent
-          opacity={0.8}
+          opacity={0.75}
           metalness={0.85}
           roughness={0.05}
           envMapIntensity={2.0}
         />
       </mesh>
     </group>
+  );
+};
+
+const SettlementBoundary: React.FC<{ settlement: Settlement }> = ({ settlement }) => {
+  const ringRef = useRef<THREE.Mesh>(null);
+
+  useFrame(({ clock }) => {
+    if (ringRef.current) {
+      (ringRef.current.material as THREE.MeshBasicMaterial).opacity = 0.12 + Math.sin(clock.elapsedTime * 0.8) * 0.04;
+    }
+  });
+
+  const y = getTerrainHeight(settlement.position.x, settlement.position.z) + 0.15;
+
+  return (
+    <group position={[settlement.position.x, y, settlement.position.z]}>
+      <mesh ref={ringRef} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[settlement.radius - 0.5, settlement.radius, 48]} />
+        <meshBasicMaterial color="#60a5fa" transparent opacity={0.15} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[settlement.radius, 48]} />
+        <meshBasicMaterial color="#60a5fa" transparent opacity={0.03} side={THREE.DoubleSide} />
+      </mesh>
+      <Billboard position={[0, 4, 0]} follow>
+        <group>
+          <mesh position={[0, 0, -0.01]}>
+            <boxGeometry args={[Math.max(3, settlement.name.length * 0.28), 0.7, 0.05]} />
+            <meshStandardMaterial color="#1e3a5f" opacity={0.9} transparent flatShading />
+          </mesh>
+          <Text
+            position={[0, 0, 0.06]}
+            fontSize={0.3}
+            color="#93c5fd"
+            anchorX="center"
+            anchorY="middle"
+          >
+            🏘️ {settlement.name.toUpperCase()}
+          </Text>
+        </group>
+      </Billboard>
+    </group>
+  );
+};
+
+const EventVisuals: React.FC<{ events: ActiveEvent[] }> = ({ events }) => {
+  const lightRef = useRef<THREE.PointLight>(null);
+
+  useFrame(({ clock }) => {
+    if (lightRef.current) {
+      lightRef.current.intensity = 2 + Math.sin(clock.elapsedTime * 3) * 1;
+    }
+  });
+
+  return (
+    <>
+      {events.map(event => {
+        if (!event.affectedArea) return null;
+        const pos = event.affectedArea;
+        const y = getTerrainHeight(pos.x, pos.z) + 0.5;
+
+        switch (event.type) {
+          case 'WILDFIRE':
+            return (
+              <group key={event.id} position={[pos.x, y, pos.z]}>
+                <pointLight ref={lightRef} color="#ff4500" intensity={3} distance={30} />
+                <mesh rotation={[-Math.PI / 2, 0, 0]}>
+                  <circleGeometry args={[20, 32]} />
+                  <meshBasicMaterial color="#ff4500" transparent opacity={0.06} side={THREE.DoubleSide} />
+                </mesh>
+              </group>
+            );
+          case 'METEOR':
+            return (
+              <group key={event.id} position={[pos.x, y + 2, pos.z]}>
+                <pointLight color="#ffd700" intensity={4} distance={20} />
+                <mesh>
+                  <octahedronGeometry args={[0.8, 0]} />
+                  <meshStandardMaterial color="#ffd700" emissive="#ff8c00" emissiveIntensity={2} flatShading />
+                </mesh>
+              </group>
+            );
+          case 'EARTHQUAKE':
+            return (
+              <group key={event.id} position={[pos.x, y, pos.z]}>
+                <mesh rotation={[-Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[15, 30, 32]} />
+                  <meshBasicMaterial color="#8b4513" transparent opacity={0.08} side={THREE.DoubleSide} />
+                </mesh>
+              </group>
+            );
+          case 'DISEASE_OUTBREAK':
+            return (
+              <group key={event.id} position={[pos.x, y + 1, pos.z]}>
+                <mesh rotation={[-Math.PI / 2, 0, 0]}>
+                  <circleGeometry args={[25, 32]} />
+                  <meshBasicMaterial color="#00ff00" transparent opacity={0.04} side={THREE.DoubleSide} />
+                </mesh>
+              </group>
+            );
+          default:
+            return null;
+        }
+      })}
+    </>
+  );
+};
+
+const SeasonalParticles: React.FC<{ season: Season }> = ({ season }) => {
+  const pointsRef = useRef<THREE.Points>(null);
+
+  const geo = useMemo(() => {
+    if (season !== 'AUTUMN' && season !== 'SPRING') return null;
+    const count = 300;
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = (Math.random() - 0.5) * 100;
+      positions[i * 3 + 1] = 2 + Math.random() * 15;
+      positions[i * 3 + 2] = (Math.random() - 0.5) * 100;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    return g;
+  }, [season]);
+
+  useFrame(() => {
+    if (pointsRef.current && geo) {
+      const pos = geo.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        let y = pos.getY(i) - (season === 'AUTUMN' ? 0.03 : 0.01);
+        let x = pos.getX(i) + Math.sin(y * 0.3 + i) * 0.02;
+        if (y < 0) { y = 10 + Math.random() * 8; x = (Math.random() - 0.5) * 100; }
+        pos.setY(i, y);
+        pos.setX(i, x);
+      }
+      pos.needsUpdate = true;
+    }
+  });
+
+  if (!geo) return null;
+  const color = season === 'AUTUMN' ? '#d4922a' : '#ffee88';
+  return (
+    <points ref={pointsRef}>
+      <primitive object={geo} attach="geometry" />
+      <pointsMaterial color={color} size={season === 'AUTUMN' ? 0.25 : 0.15} transparent opacity={0.6} sizeAttenuation />
+    </points>
   );
 };
 
@@ -200,6 +356,37 @@ const WeatherEffects: React.FC<{ weather: Weather }> = ({ weather }) => {
   );
 };
 
+const FollowCamera: React.FC<{ agents: Agent[]; selectedAgentId: string | null; mode: CameraMode }> = ({ agents, selectedAgentId, mode }) => {
+  const { camera } = useThree();
+  const targetPos = useRef(new THREE.Vector3());
+  const currentPos = useRef(new THREE.Vector3());
+  const controlsRef = useRef<any>(null);
+
+  useFrame(() => {
+    if (mode === 'FREE') return;
+
+    let targetAgent: Agent | undefined;
+
+    if (mode === 'FOLLOW' && selectedAgentId) {
+      targetAgent = agents.find(a => a.id === selectedAgentId);
+    } else if (mode === 'CINEMATIC') {
+      const interesting = agents.find(a =>
+        ['FIGHTING', 'HUNTING', 'CELEBRATING', 'COURTING', 'MATING', 'TEACHING', 'BUILDING'].includes(a.state)
+      ) || agents[0];
+      targetAgent = interesting;
+    }
+
+    if (targetAgent) {
+      targetPos.current.set(targetAgent.position.x, targetAgent.position.y + 8, targetAgent.position.z + 12);
+      currentPos.current.lerp(targetPos.current, 0.03);
+      camera.position.copy(currentPos.current);
+      camera.lookAt(targetAgent.position.x, targetAgent.position.y + 1, targetAgent.position.z);
+    }
+  });
+
+  return null;
+};
+
 const WorldRig = ({ dayTime, weather, season }: { dayTime: number; weather: Weather; season: Season }) => {
   const isDay = dayTime > 6 && dayTime < 18;
   const isSunset = (dayTime >= 17 && dayTime <= 19) || (dayTime >= 5 && dayTime <= 7);
@@ -207,8 +394,6 @@ const WorldRig = ({ dayTime, weather, season }: { dayTime: number; weather: Weat
   const sunX = Math.cos(sunTheta) * 100;
   const sunY = Math.max(5, Math.sin(sunTheta) * 100);
 
-  const skyInclination = isDay ? 0.49 : 0.53;
-  const skyAzimuth = (dayTime / 24) * 0.5;
   const skyTurbidity = weather === 'STORM' ? 20 : weather === 'RAIN' ? 12 : weather === 'CLOUDY' ? 8 : 2;
   const skyRayleigh = isDay ? (isSunset ? 4 : 1) : 0.1;
 
@@ -217,8 +402,8 @@ const WorldRig = ({ dayTime, weather, season }: { dayTime: number; weather: Weat
       <Sky
         distance={450000}
         sunPosition={[sunX, sunY, 50]}
-        inclination={skyInclination}
-        azimuth={skyAzimuth}
+        inclination={isDay ? 0.49 : 0.53}
+        azimuth={(dayTime / 24) * 0.5}
         turbidity={skyTurbidity}
         rayleigh={skyRayleigh}
         mieCoefficient={isSunset ? 0.01 : 0.005}
@@ -249,11 +434,7 @@ const WorldRig = ({ dayTime, weather, season }: { dayTime: number; weather: Weat
       />
 
       {isSunset && (
-        <hemisphereLight
-          color="#ff9966"
-          groundColor="#3d1a00"
-          intensity={0.3}
-        />
+        <hemisphereLight color="#ff9966" groundColor="#3d1a00" intensity={0.3} />
       )}
 
       {!isDay && (
@@ -307,25 +488,32 @@ const World3D: React.FC<World3DProps> = (props) => {
         <color attach="background" args={[bgColor]} />
         <fog attach="fog" args={[fogColor, fogNear, fogFar]} />
 
-        <OrbitControls
-          maxPolarAngle={Math.PI / 2 - 0.05}
-          maxDistance={140}
-          minDistance={10}
-          enableDamping
-          dampingFactor={0.05}
-          rotateSpeed={0.5}
-          zoomSpeed={0.8}
-        />
+        {props.cameraMode === 'FREE' && (
+          <OrbitControls
+            maxPolarAngle={Math.PI / 2 - 0.05}
+            maxDistance={140}
+            minDistance={10}
+            enableDamping
+            dampingFactor={0.05}
+            rotateSpeed={0.5}
+            zoomSpeed={0.8}
+          />
+        )}
 
+        <FollowCamera agents={props.agents} selectedAgentId={props.selectedAgentId} mode={props.cameraMode} />
         <WorldRig dayTime={props.dayTime} weather={props.weather} season={props.season} />
         <WeatherEffects weather={props.weather} />
+        <SeasonalParticles season={props.season} />
 
         <Terrain season={props.season} />
 
-        {props.water.map(p => <WaterSurface key={p.id} patch={p} />)}
+        {props.water.map(p => <AnimatedWater key={p.id} patch={p} />)}
         {props.flora.map(f => <FloraRenderer key={f.id} item={f} season={props.season} />)}
         {props.fauna.map(f => <FaunaRenderer key={f.id} item={f} />)}
         {props.buildings.map(b => <BuildingRenderer key={b.id} building={b} />)}
+        {props.settlements.map(s => <SettlementBoundary key={s.id} settlement={s} />)}
+
+        <EventVisuals events={props.activeEvents} />
 
         {(props.places ?? []).map(p => (
           <Billboard key={p.id} position={[p.position.x, p.position.y + 3, p.position.z]} follow>
@@ -340,15 +528,9 @@ const World3D: React.FC<World3DProps> = (props) => {
                 color="#e2e8f0"
                 anchorX="center"
                 anchorY="middle"
-                font="https://fonts.gstatic.com/s/inter/v12/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hjQ.ttf"
-                fontWeight={700}
               >
                 {p.name.toUpperCase()}
               </Text>
-              <mesh position={[0, -0.45, 0]}>
-                <coneGeometry args={[0.15, 0.2, 3]} />
-                <meshStandardMaterial color="#1e293b" opacity={0.85} transparent flatShading />
-              </mesh>
             </group>
           </Billboard>
         ))}
