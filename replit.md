@@ -17,7 +17,8 @@ A 3D AI-powered life simulation ("The Sims for AI species") where unique creatur
 - **App.tsx** - Main game loop with full lifecycle: reproduction, aging, death, events, settlements, courtship, combat, collision resolution, AI integration
 - **components/World3D.tsx** - 3D canvas with terrain, lighting, weather, water, day/night cycle, settlement boundaries, event visuals, follow/cinematic cameras, seasonal particles
 - **components/Environment.tsx** - Flora (20 types), fauna (7 types), buildings (13 types) 3D models
-- **components/CreatureModel.tsx** - Aetheri creature model with 22 distinct state animations, particle effects, life stage scaling, pregnancy visuals
+- **components/CreatureModel.tsx** - Fully refactored Aetheri character model with rich articulated skeleton, emotion-driven posture overlays, 22 animation states with sub-states, idle sub-state cycling, ankle/wrist joints, tapered limbs, carried item visuals, per-agent variation, state emoji indicators, debug overlay, and particle effects
+- **components/CharacterVariation.ts** - Seeded per-agent variation system (height, body proportions, personality-driven posture presets, idle tendencies, eye/hair color, outfit variants, antenna styles) and emotion-state computation from needs/neurochemistry
 - **components/UIOverlay.tsx** - Full HUD: world info, mini-map, population sparkline, agent inspector with family tree, settlements panel, event banners, era progress, event log
 
 ### Backend (port 3001)
