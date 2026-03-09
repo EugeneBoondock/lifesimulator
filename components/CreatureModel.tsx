@@ -13,99 +13,10 @@ interface CreatureModelProps {
 const _targetPos = new THREE.Vector3();
 const _targetQuat = new THREE.Quaternion();
 const _currentQuat = new THREE.Quaternion();
-const _axis = new THREE.Vector3(0, 1, 0);
+const _yAxis = new THREE.Vector3(0, 1, 0);
 
 function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * t;
-}
-
-function EquippedTool({ tool }: { tool: string }) {
-  if (tool === 'stone_axe' || tool === 'copper_axe' || tool === 'iron_axe') {
-    return (
-      <group>
-        <mesh position={[0, 0.12, 0]}>
-          <cylinderGeometry args={[0.015, 0.015, 0.25, 5]} />
-          <meshStandardMaterial color="#8B4513" flatShading />
-        </mesh>
-        <mesh position={[0.04, 0.22, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.08, 0.06, 0.02]} />
-          <meshStandardMaterial color="#888" flatShading />
-        </mesh>
-      </group>
-    );
-  }
-  if (tool === 'stone_spear' || tool === 'copper_spear' || tool === 'iron_spear') {
-    return (
-      <group>
-        <mesh position={[0, 0.18, 0]}>
-          <cylinderGeometry args={[0.012, 0.012, 0.35, 5]} />
-          <meshStandardMaterial color="#8B4513" flatShading />
-        </mesh>
-        <mesh position={[0, 0.37, 0]}>
-          <coneGeometry args={[0.03, 0.08, 4]} />
-          <meshStandardMaterial color="#999" flatShading />
-        </mesh>
-      </group>
-    );
-  }
-  return (
-    <mesh position={[0, 0.1, 0]}>
-      <cylinderGeometry args={[0.015, 0.015, 0.2, 5]} />
-      <meshStandardMaterial color="#8B4513" flatShading />
-    </mesh>
-  );
-}
-
-interface Particle {
-  id: number;
-  x: number;
-  y: number;
-  z: number;
-  vx: number;
-  vy: number;
-  vz: number;
-  life: number;
-  maxLife: number;
-  color: string;
-  size: number;
-}
-
-const MAX_PARTICLES = 30;
-
-function ParticleSystemImperative({ particlesRef }: { particlesRef: React.MutableRefObject<Particle[]> }) {
-  const meshRefs = useRef<(THREE.Mesh | null)[]>(new Array(MAX_PARTICLES).fill(null));
-  const matRefs = useRef<(THREE.MeshBasicMaterial | null)[]>(new Array(MAX_PARTICLES).fill(null));
-  const geo = useMemo(() => new THREE.SphereGeometry(1, 4, 3), []);
-
-  useFrame(() => {
-    const ps = particlesRef.current;
-    for (let i = 0; i < MAX_PARTICLES; i++) {
-      const mesh = meshRefs.current[i];
-      const mat = matRefs.current[i];
-      if (!mesh || !mat) continue;
-      if (i < ps.length) {
-        const p = ps[i];
-        mesh.visible = true;
-        mesh.position.set(p.x, p.y, p.z);
-        mesh.scale.setScalar(p.size);
-        mat.opacity = p.life / p.maxLife;
-        mat.color.set(p.color);
-      } else {
-        mesh.visible = false;
-      }
-    }
-  });
-
-  return (
-    <>
-      {Array.from({ length: MAX_PARTICLES }).map((_, i) => (
-        <mesh key={i} ref={el => { meshRefs.current[i] = el; }} visible={false}>
-          <primitive object={geo} attach="geometry" />
-          <meshBasicMaterial ref={el => { matRefs.current[i] = el as any; }} transparent />
-        </mesh>
-      ))}
-    </>
-  );
+  return a + (b - a) * Math.min(1, t);
 }
 
 function desaturateColor(hex: string, amount: number): string {
@@ -118,386 +29,554 @@ function desaturateColor(hex: string, amount: number): string {
   return '#' + c.getHexString();
 }
 
+interface Particle {
+  id: number;
+  x: number; y: number; z: number;
+  vx: number; vy: number; vz: number;
+  life: number; maxLife: number;
+  color: string; size: number;
+}
+
+const MAX_PARTICLES = 20;
+
+function ParticleSystem({ particlesRef }: { particlesRef: React.MutableRefObject<Particle[]> }) {
+  const meshRefs = useRef<(THREE.Mesh | null)[]>(new Array(MAX_PARTICLES).fill(null));
+  const matRefs = useRef<(THREE.MeshBasicMaterial | null)[]>(new Array(MAX_PARTICLES).fill(null));
+  const geo = useMemo(() => new THREE.SphereGeometry(1, 4, 3), []);
+
+  useFrame(() => {
+    const ps = particlesRef.current;
+    for (let i = 0; i < MAX_PARTICLES; i++) {
+      const mesh = meshRefs.current[i];
+      const mat = matRefs.current[i];
+      if (!mesh || !mat) continue;
+      if (i < ps.length) {
+        mesh.visible = true;
+        mesh.position.set(ps[i].x, ps[i].y, ps[i].z);
+        mesh.scale.setScalar(ps[i].size);
+        mat.opacity = ps[i].life / ps[i].maxLife;
+        mat.color.set(ps[i].color);
+      } else {
+        mesh.visible = false;
+      }
+    }
+  });
+
+  return (
+    <>
+      {Array.from({ length: MAX_PARTICLES }).map((_, i) => (
+        <mesh key={i} ref={el => { meshRefs.current[i] = el; }} visible={false}>
+          <primitive object={geo} attach="geometry" />
+          <meshBasicMaterial ref={el => { matRefs.current[i] = el as any; }} transparent depthWrite={false} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
+function EquippedTool({ tool }: { tool: string }) {
+  if (tool.includes('axe')) {
+    return (
+      <group rotation={[0.3, 0, 0]}>
+        <mesh position={[0, -0.25, 0]}>
+          <cylinderGeometry args={[0.03, 0.03, 0.5, 5]} />
+          <meshStandardMaterial color="#8B4513" flatShading />
+        </mesh>
+        <mesh position={[0.08, -0.05, 0]} rotation={[0, 0, Math.PI / 4]}>
+          <boxGeometry args={[0.15, 0.1, 0.04]} />
+          <meshStandardMaterial color={tool.includes('iron') ? '#666' : tool.includes('copper') ? '#b87333' : '#888'} flatShading />
+        </mesh>
+      </group>
+    );
+  }
+  if (tool.includes('spear')) {
+    return (
+      <group rotation={[0.2, 0, 0]}>
+        <mesh position={[0, -0.3, 0]}>
+          <cylinderGeometry args={[0.025, 0.025, 0.7, 5]} />
+          <meshStandardMaterial color="#8B4513" flatShading />
+        </mesh>
+        <mesh position={[0, 0.06, 0]}>
+          <coneGeometry args={[0.05, 0.15, 4]} />
+          <meshStandardMaterial color="#999" flatShading />
+        </mesh>
+      </group>
+    );
+  }
+  return null;
+}
+
 export const CreatureModel: React.FC<CreatureModelProps> = ({ agent, isSelected, onClick }) => {
-  const groupRef = useRef<THREE.Group>(null!);
-  const bodyRef = useRef<THREE.Group>(null!);
+  const rootRef = useRef<THREE.Group>(null!);
+  const hipsRef = useRef<THREE.Group>(null!);
+  const spineRef = useRef<THREE.Group>(null!);
   const headRef = useRef<THREE.Group>(null!);
-  const leftArmRef = useRef<THREE.Group>(null!);
-  const rightArmRef = useRef<THREE.Group>(null!);
-  const leftLegRef = useRef<THREE.Group>(null!);
-  const rightLegRef = useRef<THREE.Group>(null!);
-  const tailRef = useRef<THREE.Group>(null!);
-  const leftEyeRef = useRef<THREE.Mesh>(null!);
-  const rightEyeRef = useRef<THREE.Mesh>(null!);
-  const selectionRingRef = useRef<THREE.Mesh>(null!);
-  const wholeBodyRef = useRef<THREE.Group>(null!);
+  const lShoulderRef = useRef<THREE.Group>(null!);
+  const rShoulderRef = useRef<THREE.Group>(null!);
+  const lElbowRef = useRef<THREE.Group>(null!);
+  const rElbowRef = useRef<THREE.Group>(null!);
+  const lHipJointRef = useRef<THREE.Group>(null!);
+  const rHipJointRef = useRef<THREE.Group>(null!);
+  const lKneeRef = useRef<THREE.Group>(null!);
+  const rKneeRef = useRef<THREE.Group>(null!);
+  const lEyeRef = useRef<THREE.Mesh>(null!);
+  const rEyeRef = useRef<THREE.Mesh>(null!);
+  const selRingRef = useRef<THREE.Mesh>(null!);
+  const shadowRef = useRef<THREE.Mesh>(null!);
+  const wholeRef = useRef<THREE.Group>(null!);
 
   const prevStateRef = useRef<AgentState>(agent.state);
   const blendRef = useRef(1);
   const particlesRef = useRef<Particle[]>([]);
-  const particleIdRef = useRef(0);
-  const fidgetTimerRef = useRef(Math.random() * 5);
-
+  const pidRef = useRef(0);
+  const fidgetRef = useRef(Math.random() * 5);
+  const blinkRef = useRef(Math.random() * 4 + 2);
 
   const isElder = agent.lifeStage === 'ELDER';
-  const desatAmount = isElder ? 0.35 : 0;
+  const lifeScale = agent.lifeStage === 'CHILD' ? 0.65 : agent.lifeStage === 'ELDER' ? 0.92 : 1.0;
+  const healthPct = agent.needs.health / 100;
 
-  const skinMat = useMemo(() => {
-    const col = isElder ? desaturateColor(agent.skinTone, desatAmount) : agent.skinTone;
-    return new THREE.MeshStandardMaterial({ color: col, flatShading: true });
+  const skin = useMemo(() => {
+    const col = isElder ? desaturateColor(agent.skinTone, 0.3) : agent.skinTone;
+    return new THREE.MeshStandardMaterial({ color: col, flatShading: true, roughness: 0.8 });
   }, [agent.skinTone, isElder]);
 
-  const markingMat = useMemo(() => {
-    const col = isElder ? desaturateColor(agent.markings, desatAmount) : agent.markings;
-    return new THREE.MeshStandardMaterial({ color: col, flatShading: true });
-  }, [agent.markings, isElder]);
-
-  const clothingMat = useMemo(() => {
-    const col = isElder ? desaturateColor(agent.color, desatAmount) : agent.color;
-    return new THREE.MeshStandardMaterial({ color: col, flatShading: true });
+  const cloth = useMemo(() => {
+    const col = isElder ? desaturateColor(agent.color, 0.25) : agent.color;
+    return new THREE.MeshStandardMaterial({ color: col, flatShading: true, roughness: 0.7 });
   }, [agent.color, isElder]);
 
-  const eyeMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#1a1a2e', flatShading: true }), []);
-  const eyeWhiteMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#f0f0f0', flatShading: true }), []);
+  const marking = useMemo(() => {
+    const col = isElder ? desaturateColor(agent.markings, 0.25) : agent.markings;
+    return new THREE.MeshStandardMaterial({ color: col, flatShading: true, roughness: 0.7 });
+  }, [agent.markings, isElder]);
 
-  const lifeScale = agent.lifeStage === 'CHILD' ? 0.7 : agent.lifeStage === 'ELDER' ? 0.9 : 1.0;
-
-  const healthPercent = agent.needs.health / 100;
-
-  const bellyScale = agent.isPregnant ? 1.25 : 1.0;
+  const eyeWhite = useMemo(() => new THREE.MeshStandardMaterial({ color: '#f5f5f0', flatShading: true }), []);
+  const eyePupil = useMemo(() => new THREE.MeshStandardMaterial({ color: '#1a1a2e', flatShading: true }), []);
+  const mouthMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#c46060', flatShading: true }), []);
 
   useFrame((_, delta) => {
-    if (!groupRef.current) return;
+    if (!rootRef.current) return;
     const dt = Math.min(delta, 0.1);
-    const time = performance.now() * 0.001;
+    const t = performance.now() * 0.001;
     const state = agent.state;
 
     if (prevStateRef.current !== state) {
       prevStateRef.current = state;
       blendRef.current = 0;
     }
-    blendRef.current = Math.min(1, blendRef.current + dt / 0.3);
-    const blend = blendRef.current;
+    blendRef.current = Math.min(1, blendRef.current + dt / 0.25);
 
     _targetPos.set(agent.position.x, agent.position.y, agent.position.z);
-    groupRef.current.position.lerp(_targetPos, dt * 5);
+    rootRef.current.position.lerp(_targetPos, dt * 6);
+    _targetQuat.setFromAxisAngle(_yAxis, agent.rotation);
+    _currentQuat.copy(rootRef.current.quaternion);
+    _currentQuat.slerp(_targetQuat, dt * 6);
+    rootRef.current.quaternion.copy(_currentQuat);
 
-    _targetQuat.setFromAxisAngle(_axis, agent.rotation);
-    _currentQuat.copy(groupRef.current.quaternion);
-    _currentQuat.slerp(_targetQuat, dt * 5);
-    groupRef.current.quaternion.copy(_currentQuat);
-
-    if (wholeBodyRef.current) {
+    if (wholeRef.current) {
       const s = lifeScale;
-      wholeBodyRef.current.scale.set(
-        lerp(wholeBodyRef.current.scale.x, s, dt * 5),
-        lerp(wholeBodyRef.current.scale.y, s, dt * 5),
-        lerp(wholeBodyRef.current.scale.z, s, dt * 5)
-      );
+      wholeRef.current.scale.lerp(new THREE.Vector3(s, s, s), dt * 5);
     }
 
-    fidgetTimerRef.current -= dt;
+    blinkRef.current -= dt;
+    let eyeScaleY = 1;
+    if (blinkRef.current <= 0) {
+      if (blinkRef.current > -0.12) {
+        eyeScaleY = Math.abs(blinkRef.current) < 0.06 ? 0.05 : 0.5;
+      } else {
+        blinkRef.current = 2 + Math.random() * 4;
+      }
+    }
+    fidgetRef.current -= dt;
 
-    const bodyTarget = { y: 0, rotZ: 0, rotX: 0, rotY: 0, scaleX: 1, scaleY: 1, scaleZ: 1 };
-    const headTarget = { rotX: 0, rotY: 0, rotZ: 0 };
-    const lArmTarget = { rotX: 0, rotZ: 0 };
-    const rArmTarget = { rotX: 0, rotZ: 0 };
-    const lLegTarget = { rotX: 0, posX: -0.08 };
-    const rLegTarget = { rotX: 0, posX: 0.08 };
-    let eyeScale = 1;
+    const hip = { y: 0, rotX: 0, rotY: 0, rotZ: 0 };
+    const spine = { rotX: 0, rotY: 0, rotZ: 0, scX: 1, scY: 1, scZ: 1 };
+    const head = { rotX: 0, rotY: 0, rotZ: 0 };
+    const lSh = { rotX: 0, rotZ: 0.15 };
+    const rSh = { rotX: 0, rotZ: -0.15 };
+    const lEl = { rotX: 0 };
+    const rEl = { rotX: 0 };
+    const lHip = { rotX: 0 };
+    const rHip = { rotX: 0 };
+    const lKn = { rotX: 0 };
+    const rKn = { rotX: 0 };
+
+    const breathe = Math.sin(t * 2) * 0.012;
+    spine.scX = 1 + breathe;
+    spine.scZ = 1 + breathe;
 
     switch (state) {
       case AgentState.IDLE: {
-        const breathe = Math.sin(time * 2) * 0.02;
-        bodyTarget.scaleX = 1 + breathe;
-        bodyTarget.scaleY = 1 + breathe * 0.5;
-        bodyTarget.scaleZ = 1 + breathe;
-        headTarget.rotY = Math.sin(time * 0.7) * 0.15;
-        bodyTarget.y = Math.sin(time * 1.2) * 0.005;
-        if (fidgetTimerRef.current <= 0) {
-          fidgetTimerRef.current = 3 + Math.random() * 4;
+        head.rotY = Math.sin(t * 0.7 + agent.position.x) * 0.2;
+        head.rotX = Math.sin(t * 0.5) * 0.05;
+        hip.y = Math.sin(t * 1.2) * 0.01;
+        lSh.rotX = Math.sin(t * 0.6) * 0.06;
+        rSh.rotX = Math.sin(t * 0.6 + 1) * 0.06;
+        spine.rotY = Math.sin(t * 0.4) * 0.03;
+        if (fidgetRef.current <= 0) {
+          fidgetRef.current = 3 + Math.random() * 5;
+          lSh.rotZ = 0.15 + Math.sin(t * 3) * 0.15;
         }
-        const fidgetPhase = Math.max(0, 1 - fidgetTimerRef.current * 0.5);
-        rArmTarget.rotX = Math.sin(time * 3) * 0.1 * fidgetPhase;
-        lArmTarget.rotX = Math.sin(time * 0.5) * 0.05;
         break;
       }
       case AgentState.MOVING: {
-        const speed = 8;
-        const swing = 0.4;
-        const armSwing = 0.25;
-        bodyTarget.y = Math.abs(Math.sin(time * speed)) * 0.03;
-        headTarget.rotX = Math.sin(time * speed) * 0.05;
-        lLegTarget.rotX = Math.sin(time * speed) * swing;
-        rLegTarget.rotX = Math.sin(time * speed + Math.PI) * swing;
-        lArmTarget.rotX = Math.sin(time * speed + Math.PI) * armSwing;
-        rArmTarget.rotX = Math.sin(time * speed) * armSwing;
+        const spd = 8;
+        const legSwing = 0.55;
+        const armSwing = 0.4;
+        const bounce = Math.abs(Math.sin(t * spd)) * 0.06;
+        hip.y = bounce;
+        hip.rotZ = Math.sin(t * spd) * 0.03;
+        spine.rotX = -0.05;
+        spine.rotY = Math.sin(t * spd) * 0.06;
+        head.rotX = Math.sin(t * spd) * 0.04;
+        lHip.rotX = Math.sin(t * spd) * legSwing;
+        rHip.rotX = Math.sin(t * spd + Math.PI) * legSwing;
+        lKn.rotX = Math.max(0, -Math.sin(t * spd) * 0.4);
+        rKn.rotX = Math.max(0, -Math.sin(t * spd + Math.PI) * 0.4);
+        lSh.rotX = Math.sin(t * spd + Math.PI) * armSwing;
+        rSh.rotX = Math.sin(t * spd) * armSwing;
+        lEl.rotX = -Math.abs(Math.sin(t * spd + Math.PI)) * 0.3;
+        rEl.rotX = -Math.abs(Math.sin(t * spd)) * 0.3;
         break;
       }
       case AgentState.GATHERING: {
-        const cycle = Math.sin(time * 3);
-        bodyTarget.rotX = lerp(0, 0.4, (cycle + 1) * 0.5);
-        bodyTarget.y = -0.05 * (cycle + 1) * 0.5;
-        lArmTarget.rotX = -0.8 + cycle * 0.4;
-        rArmTarget.rotX = -0.8 + cycle * 0.4;
-        headTarget.rotX = 0.2;
-        lLegTarget.rotX = 0.1;
-        rLegTarget.rotX = 0.1;
+        const cycle = (Math.sin(t * 3) + 1) * 0.5;
+        spine.rotX = 0.4 + cycle * 0.3;
+        hip.y = -0.15 * cycle;
+        head.rotX = 0.15;
+        lSh.rotX = -0.9 + cycle * 0.5;
+        rSh.rotX = -0.9 + cycle * 0.5;
+        lEl.rotX = -0.8 + cycle * 0.3;
+        rEl.rotX = -0.8 + cycle * 0.3;
+        lHip.rotX = 0.2;
+        rHip.rotX = 0.2;
+        lKn.rotX = 0.3 * cycle;
+        rKn.rotX = 0.3 * cycle;
         break;
       }
       case AgentState.CRAFTING: {
-        bodyTarget.y = -0.12;
-        lLegTarget.rotX = -1.2;
-        rLegTarget.rotX = -1.2;
-        headTarget.rotX = 0.3;
-        const hammer = Math.sin(time * 6);
-        rArmTarget.rotX = -0.5 + hammer * 0.6;
-        lArmTarget.rotX = -0.3;
+        hip.y = -0.25;
+        lHip.rotX = -1.4;
+        rHip.rotX = -1.4;
+        lKn.rotX = 1.4;
+        rKn.rotX = 1.4;
+        head.rotX = 0.3;
+        const hammer = Math.sin(t * 7);
+        rSh.rotX = -0.7 + hammer * 0.5;
+        rEl.rotX = -1.0 + hammer * 0.6;
+        lSh.rotX = -0.4;
+        lEl.rotX = -0.6;
+        spine.rotX = 0.15;
         break;
       }
       case AgentState.BUILDING: {
-        const reach = Math.sin(time * 4);
-        lArmTarget.rotX = -2.0 + reach * 0.3;
-        rArmTarget.rotX = -2.0 + reach * 0.3;
-        headTarget.rotX = -0.2;
-        const step = Math.sin(time * 2) * 0.05;
-        lLegTarget.posX = -0.08 + step;
-        rLegTarget.posX = 0.08 + step;
-        bodyTarget.y = Math.sin(time * 4) * 0.02;
+        const reach = Math.sin(t * 4);
+        lSh.rotX = -2.5 + reach * 0.3;
+        rSh.rotX = -2.5 + reach * 0.3;
+        lEl.rotX = -0.3;
+        rEl.rotX = -0.3;
+        head.rotX = -0.25;
+        spine.rotX = -0.1;
+        hip.y = Math.sin(t * 4) * 0.03;
+        const step = Math.sin(t * 2) * 0.15;
+        lHip.rotX = step > 0 ? step * 0.3 : 0;
+        rHip.rotX = step < 0 ? -step * 0.3 : 0;
         break;
       }
       case AgentState.EATING: {
-        bodyTarget.y = -0.08;
-        lLegTarget.rotX = -0.8;
-        rLegTarget.rotX = -0.8;
-        rArmTarget.rotX = -1.5 + Math.sin(time * 4) * 0.3;
-        lArmTarget.rotX = -0.3;
-        headTarget.rotX = Math.sin(time * 5) * 0.1 + 0.1;
+        hip.y = -0.2;
+        lHip.rotX = -1.0;
+        rHip.rotX = -1.0;
+        lKn.rotX = 1.0;
+        rKn.rotX = 1.0;
+        const bite = Math.sin(t * 5);
+        rSh.rotX = -1.8 + bite * 0.25;
+        rEl.rotX = -1.2;
+        lSh.rotX = -0.3;
+        lEl.rotX = -0.4;
+        head.rotX = bite * 0.08 + 0.1;
+        spine.rotX = 0.1;
         break;
       }
       case AgentState.DRINKING: {
-        bodyTarget.y = -0.15;
-        bodyTarget.rotX = 0.3;
-        lLegTarget.rotX = -1.0;
-        rLegTarget.rotX = -1.0;
-        headTarget.rotX = 0.4 + Math.sin(time * 2) * 0.15;
-        lArmTarget.rotX = -0.2;
-        rArmTarget.rotX = -0.2;
+        hip.y = -0.3;
+        spine.rotX = 0.5;
+        lHip.rotX = -1.2;
+        rHip.rotX = -1.2;
+        lKn.rotX = 1.2;
+        rKn.rotX = 1.2;
+        head.rotX = 0.4 + Math.sin(t * 2.5) * 0.15;
+        lSh.rotX = -0.4;
+        rSh.rotX = -0.4;
+        lEl.rotX = -0.3;
+        rEl.rotX = -0.3;
         break;
       }
       case AgentState.SLEEPING: {
-        bodyTarget.rotZ = Math.PI / 2.5;
-        bodyTarget.y = 0.1;
-        headTarget.rotX = 0.3;
-        eyeScale = 0.1;
-        const sleepBreathe = Math.sin(time * 1.5) * 0.03;
-        bodyTarget.scaleX = 1 + sleepBreathe;
-        bodyTarget.scaleY = 1 + sleepBreathe * 0.5;
-        bodyTarget.scaleZ = 1 + sleepBreathe;
+        hip.rotZ = Math.PI / 2.2;
+        hip.y = -0.2;
+        head.rotX = 0.25;
+        eyeScaleY = 0.05;
+        const br = Math.sin(t * 1.2) * 0.04;
+        spine.scX = 1 + br;
+        spine.scZ = 1 + br;
+        lSh.rotX = 0.2;
+        rSh.rotX = 0.2;
+        lSh.rotZ = 0.4;
+        rSh.rotZ = -0.4;
         break;
       }
       case AgentState.FIGHTING: {
-        lLegTarget.posX = -0.14;
-        rLegTarget.posX = 0.14;
-        lLegTarget.rotX = 0.15;
-        rLegTarget.rotX = -0.15;
-        const punch = Math.sin(time * 8);
-        rArmTarget.rotX = -0.8 + punch * 0.7;
-        lArmTarget.rotX = -0.5 + Math.sin(time * 8 + 0.5) * 0.4;
-        bodyTarget.rotY = Math.sin(time * 6) * 0.1;
-        headTarget.rotX = -0.1;
-        bodyTarget.y = Math.sin(time * 3) * 0.02;
+        const punch = Math.sin(t * 9);
+        const dodge = Math.sin(t * 6);
+        spine.rotY = dodge * 0.15;
+        hip.y = Math.abs(Math.sin(t * 4)) * 0.04;
+        hip.rotY = dodge * 0.08;
+        rSh.rotX = -1.2 + punch * 0.8;
+        rEl.rotX = -0.8 + Math.max(0, punch) * 0.5;
+        lSh.rotX = -0.8 + Math.sin(t * 9 + 1) * 0.5;
+        lEl.rotX = -0.6;
+        lSh.rotZ = 0.3;
+        rSh.rotZ = -0.3;
+        head.rotX = -0.1;
+        lHip.rotX = 0.2;
+        rHip.rotX = -0.2;
         break;
       }
       case AgentState.HUNTING: {
-        bodyTarget.y = -0.1;
-        bodyTarget.rotX = 0.25;
-        lLegTarget.rotX = 0.3;
-        rLegTarget.rotX = 0.3;
-        headTarget.rotX = -0.15;
-        const lunge = Math.sin(time * 2);
-        rArmTarget.rotX = -0.6 + (lunge > 0.7 ? lunge * -1.2 : 0);
-        lArmTarget.rotX = -0.3;
+        hip.y = -0.15;
+        spine.rotX = 0.35;
+        head.rotX = -0.25;
+        const lunge = Math.sin(t * 2.5);
+        lHip.rotX = 0.4;
+        rHip.rotX = 0.4;
+        lKn.rotX = 0.3;
+        rKn.rotX = 0.3;
+        rSh.rotX = -0.8 + (lunge > 0.6 ? (lunge - 0.6) * -3.0 : 0);
+        rEl.rotX = -0.4;
+        lSh.rotX = -0.3;
+        lEl.rotX = -0.3;
+        head.rotY = Math.sin(t * 1.5) * 0.1;
         break;
       }
       case AgentState.RESEARCHING: {
-        bodyTarget.y = -0.1;
-        lLegTarget.rotX = -0.8;
-        rLegTarget.rotX = -0.8;
-        rArmTarget.rotX = -1.2;
-        rArmTarget.rotZ = 0.3;
-        lArmTarget.rotX = -0.6 + Math.sin(time * 2) * 0.3;
-        headTarget.rotZ = Math.sin(time * 1.5) * 0.15;
-        headTarget.rotX = -0.05;
+        hip.y = -0.2;
+        lHip.rotX = -1.2;
+        rHip.rotX = -1.2;
+        lKn.rotX = 1.2;
+        rKn.rotX = 1.2;
+        rSh.rotX = -1.5;
+        rEl.rotX = -1.2;
+        lSh.rotX = -0.8 + Math.sin(t * 2.5) * 0.4;
+        lEl.rotX = -0.5 + Math.sin(t * 2.5) * 0.3;
+        head.rotZ = Math.sin(t * 1.2) * 0.15;
+        head.rotX = -0.1 + Math.sin(t * 0.8) * 0.05;
+        spine.rotX = 0.05;
         break;
       }
       case AgentState.TEACHING: {
-        rArmTarget.rotX = -2.2 + Math.sin(time * 2) * 0.3;
-        lArmTarget.rotX = -0.2;
-        headTarget.rotX = Math.sin(time * 3) * 0.1;
-        headTarget.rotY = Math.sin(time * 1.5) * 0.1;
-        bodyTarget.y = Math.sin(time * 2) * 0.01;
+        rSh.rotX = -2.8 + Math.sin(t * 2.5) * 0.35;
+        rEl.rotX = -0.3;
+        lSh.rotX = -0.15;
+        lEl.rotX = -0.15;
+        head.rotX = Math.sin(t * 3) * 0.12;
+        head.rotY = Math.sin(t * 1.8) * 0.15;
+        hip.y = Math.sin(t * 2) * 0.015;
+        spine.rotY = Math.sin(t * 2) * 0.05;
         break;
       }
       case AgentState.SOCIALIZING: {
-        lArmTarget.rotX = Math.sin(time * 3) * 0.5 - 0.3;
-        rArmTarget.rotX = Math.sin(time * 3 + 1) * 0.5 - 0.3;
-        headTarget.rotY = Math.sin(time * 2) * 0.25;
-        headTarget.rotX = Math.sin(time * 4) * 0.1;
-        const laughBounce = Math.max(0, Math.sin(time * 5)) * 0.03;
-        bodyTarget.y = laughBounce;
+        lSh.rotX = -0.5 + Math.sin(t * 3.5) * 0.6;
+        rSh.rotX = -0.5 + Math.sin(t * 3.5 + 1.2) * 0.6;
+        lEl.rotX = -0.4 + Math.sin(t * 4) * 0.3;
+        rEl.rotX = -0.4 + Math.sin(t * 4 + 1) * 0.3;
+        head.rotY = Math.sin(t * 2.5) * 0.3;
+        head.rotX = Math.sin(t * 4) * 0.12;
+        const laugh = Math.max(0, Math.sin(t * 6)) * 0.05;
+        hip.y = laugh;
+        spine.rotY = Math.sin(t * 2) * 0.06;
         break;
       }
       case AgentState.FLEEING: {
-        const speed = 14;
-        const swing = 0.6;
-        const armSwing = 0.5;
-        bodyTarget.rotX = 0.2;
-        bodyTarget.y = Math.abs(Math.sin(time * speed)) * 0.06;
-        headTarget.rotX = Math.sin(time * speed) * 0.08;
-        lLegTarget.rotX = Math.sin(time * speed) * swing;
-        rLegTarget.rotX = Math.sin(time * speed + Math.PI) * swing;
-        lArmTarget.rotX = Math.sin(time * speed + Math.PI) * armSwing;
-        rArmTarget.rotX = Math.sin(time * speed) * armSwing;
+        const spd = 15;
+        const legSwing = 0.75;
+        const armSwing = 0.7;
+        spine.rotX = 0.25;
+        hip.y = Math.abs(Math.sin(t * spd)) * 0.1;
+        head.rotX = 0.1;
+        lHip.rotX = Math.sin(t * spd) * legSwing;
+        rHip.rotX = Math.sin(t * spd + Math.PI) * legSwing;
+        lKn.rotX = Math.max(0, -Math.sin(t * spd) * 0.6);
+        rKn.rotX = Math.max(0, -Math.sin(t * spd + Math.PI) * 0.6);
+        lSh.rotX = Math.sin(t * spd + Math.PI) * armSwing;
+        rSh.rotX = Math.sin(t * spd) * armSwing;
+        lEl.rotX = -0.8;
+        rEl.rotX = -0.8;
         break;
       }
       case AgentState.EXPLORING: {
-        const speed = 6;
-        bodyTarget.y = Math.abs(Math.sin(time * speed)) * 0.02;
-        lLegTarget.rotX = Math.sin(time * speed) * 0.3;
-        rLegTarget.rotX = Math.sin(time * speed + Math.PI) * 0.3;
-        lArmTarget.rotX = Math.sin(time * speed + Math.PI) * 0.2;
-        rArmTarget.rotX = -1.5;
-        rArmTarget.rotZ = 0.3;
-        headTarget.rotY = Math.sin(time * 1.5) * 0.5;
-        headTarget.rotX = -0.1;
+        const spd = 6;
+        hip.y = Math.abs(Math.sin(t * spd)) * 0.03;
+        lHip.rotX = Math.sin(t * spd) * 0.35;
+        rHip.rotX = Math.sin(t * spd + Math.PI) * 0.35;
+        lKn.rotX = Math.max(0, -Math.sin(t * spd) * 0.25);
+        rKn.rotX = Math.max(0, -Math.sin(t * spd + Math.PI) * 0.25);
+        lSh.rotX = Math.sin(t * spd + Math.PI) * 0.25;
+        rSh.rotX = -2.0;
+        rEl.rotX = -0.5;
+        head.rotY = Math.sin(t * 1.2) * 0.5;
+        head.rotX = -0.1;
+        spine.rotY = Math.sin(t * 1.5) * 0.08;
         break;
       }
       case AgentState.THINKING: {
-        lArmTarget.rotX = -0.5;
-        lArmTarget.rotZ = -0.5;
-        rArmTarget.rotX = -0.5;
-        rArmTarget.rotZ = 0.5;
-        bodyTarget.y = Math.sin(time * 1.0) * 0.008;
-        headTarget.rotX = -0.05;
-        headTarget.rotZ = Math.sin(time * 1.2) * 0.08;
+        rSh.rotX = -1.8;
+        rSh.rotZ = 0.2;
+        rEl.rotX = -1.8;
+        lSh.rotX = -0.6;
+        lSh.rotZ = 0.5;
+        lEl.rotX = -0.8;
+        hip.y = Math.sin(t * 0.8) * 0.01;
+        head.rotX = -0.08;
+        head.rotZ = Math.sin(t * 1.0) * 0.1;
+        head.rotY = Math.sin(t * 0.6) * 0.08;
+        spine.rotY = Math.sin(t * 0.5) * 0.04;
         break;
       }
       case AgentState.COURTING: {
-        const bounce = Math.abs(Math.sin(time * 6)) * 0.08;
-        bodyTarget.y = bounce;
-        lArmTarget.rotX = -1.2 + Math.sin(time * 3) * 0.2;
-        rArmTarget.rotX = -1.2 + Math.sin(time * 3) * 0.2;
-        headTarget.rotY = Math.sin(time * 4) * 0.15;
+        const bounce = Math.abs(Math.sin(t * 5)) * 0.12;
+        hip.y = bounce;
+        lSh.rotX = -1.5 + Math.sin(t * 4) * 0.25;
+        rSh.rotX = -1.5 + Math.sin(t * 4 + 0.5) * 0.25;
+        lEl.rotX = -0.3;
+        rEl.rotX = -0.3;
+        head.rotY = Math.sin(t * 5) * 0.2;
+        head.rotX = -0.1;
+        spine.rotY = Math.sin(t * 3) * 0.1;
+        lHip.rotX = Math.sin(t * 5) * 0.2;
+        rHip.rotX = Math.sin(t * 5 + Math.PI) * 0.2;
         break;
       }
       case AgentState.MATING: {
-        bodyTarget.y = Math.sin(time * 2) * 0.02;
-        bodyTarget.rotZ = Math.sin(time * 1.5) * 0.08;
-        headTarget.rotX = Math.sin(time * 2) * 0.05;
-        lArmTarget.rotX = -0.3;
-        rArmTarget.rotX = -0.3;
+        hip.y = Math.sin(t * 2) * 0.03;
+        spine.rotZ = Math.sin(t * 1.5) * 0.08;
+        head.rotX = Math.sin(t * 2) * 0.06;
+        lSh.rotX = -0.4;
+        rSh.rotX = -0.4;
+        lEl.rotX = -0.5;
+        rEl.rotX = -0.5;
+        head.rotY = Math.sin(t * 1) * 0.1;
         break;
       }
       case AgentState.PLAYING: {
-        const jump = Math.max(0, Math.sin(time * 5)) * 0.12;
-        bodyTarget.y = jump;
-        bodyTarget.rotZ = Math.sin(time * 3) * 0.2;
-        lArmTarget.rotX = Math.sin(time * 6) * 0.8;
-        rArmTarget.rotX = Math.sin(time * 6 + Math.PI) * 0.8;
-        lLegTarget.rotX = Math.sin(time * 6) * 0.5;
-        rLegTarget.rotX = Math.sin(time * 6 + Math.PI) * 0.5;
-        headTarget.rotY = Math.sin(time * 4) * 0.2;
+        const jump = Math.max(0, Math.sin(t * 6)) * 0.2;
+        hip.y = jump;
+        spine.rotZ = Math.sin(t * 4) * 0.25;
+        lSh.rotX = Math.sin(t * 7) * 1.0;
+        rSh.rotX = Math.sin(t * 7 + Math.PI) * 1.0;
+        lEl.rotX = -0.5;
+        rEl.rotX = -0.5;
+        lHip.rotX = Math.sin(t * 7) * 0.6;
+        rHip.rotX = Math.sin(t * 7 + Math.PI) * 0.6;
+        lKn.rotX = Math.max(0, -Math.sin(t * 7) * 0.4);
+        rKn.rotX = Math.max(0, -Math.sin(t * 7 + Math.PI) * 0.4);
+        head.rotY = Math.sin(t * 5) * 0.3;
         break;
       }
       case AgentState.MOURNING: {
-        headTarget.rotX = 0.4;
-        bodyTarget.rotZ = Math.sin(time * 0.8) * 0.06;
-        bodyTarget.y = -0.03;
-        lArmTarget.rotX = -0.3;
-        lArmTarget.rotZ = -0.3;
-        rArmTarget.rotX = -0.3;
-        rArmTarget.rotZ = 0.3;
+        head.rotX = 0.45;
+        spine.rotX = 0.15;
+        spine.rotZ = Math.sin(t * 0.6) * 0.06;
+        hip.y = -0.06;
+        lSh.rotX = -0.4;
+        lSh.rotZ = 0.5;
+        rSh.rotX = -0.4;
+        rSh.rotZ = -0.5;
+        lEl.rotX = -1.0;
+        rEl.rotX = -1.0;
+        lHip.rotX = 0.05;
+        rHip.rotX = 0.05;
         break;
       }
       case AgentState.CELEBRATING: {
-        const jump = Math.max(0, Math.sin(time * 6)) * 0.15;
-        bodyTarget.y = jump;
-        bodyTarget.rotZ = Math.sin(time * 4) * 0.15;
-        lArmTarget.rotX = -2.5 + Math.sin(time * 5) * 0.3;
-        rArmTarget.rotX = -2.5 + Math.sin(time * 5) * 0.3;
-        headTarget.rotX = -0.2;
-        lLegTarget.rotX = Math.sin(time * 6) * 0.3;
-        rLegTarget.rotX = Math.sin(time * 6 + Math.PI) * 0.3;
+        const jump = Math.max(0, Math.sin(t * 7)) * 0.2;
+        hip.y = jump;
+        spine.rotZ = Math.sin(t * 5) * 0.15;
+        lSh.rotX = -3.0 + Math.sin(t * 6) * 0.4;
+        rSh.rotX = -3.0 + Math.sin(t * 6 + 0.5) * 0.4;
+        lEl.rotX = -0.2;
+        rEl.rotX = -0.2;
+        head.rotX = -0.25;
+        head.rotY = Math.sin(t * 5) * 0.2;
+        lHip.rotX = Math.sin(t * 7) * 0.4;
+        rHip.rotX = Math.sin(t * 7 + Math.PI) * 0.4;
         break;
       }
       case AgentState.DEFENDING: {
-        lLegTarget.posX = -0.15;
-        rLegTarget.posX = 0.15;
-        lArmTarget.rotX = -1.0;
-        lArmTarget.rotZ = -0.8;
-        rArmTarget.rotX = -1.0;
-        rArmTarget.rotZ = 0.8;
-        bodyTarget.rotX = 0.15;
-        headTarget.rotX = -0.1;
-        bodyTarget.y = Math.sin(time * 2) * 0.015;
+        spine.rotX = 0.2;
+        lSh.rotX = -1.2;
+        lSh.rotZ = 0.8;
+        rSh.rotX = -1.2;
+        rSh.rotZ = -0.8;
+        lEl.rotX = -0.3;
+        rEl.rotX = -0.3;
+        head.rotX = -0.1;
+        lHip.rotX = 0.25;
+        rHip.rotX = -0.25;
+        hip.y = Math.sin(t * 2.5) * 0.02;
+        spine.rotY = Math.sin(t * 3) * 0.05;
         break;
       }
     }
 
-    const lerpSpeed = blend < 1 ? 8 : 5;
-    const ls = dt * lerpSpeed;
+    const sp = dt * (blendRef.current < 1 ? 10 : 6);
 
-    if (bodyRef.current) {
-      bodyRef.current.position.y = lerp(bodyRef.current.position.y, bodyTarget.y, ls);
-      bodyRef.current.rotation.z = lerp(bodyRef.current.rotation.z, bodyTarget.rotZ, ls);
-      bodyRef.current.rotation.x = lerp(bodyRef.current.rotation.x, bodyTarget.rotX, ls);
-      bodyRef.current.rotation.y = lerp(bodyRef.current.rotation.y, bodyTarget.rotY, ls);
-      bodyRef.current.scale.set(
-        lerp(bodyRef.current.scale.x, bodyTarget.scaleX * bellyScale, ls),
-        lerp(bodyRef.current.scale.y, bodyTarget.scaleY, ls),
-        lerp(bodyRef.current.scale.z, bodyTarget.scaleZ * bellyScale, ls)
+    if (hipsRef.current) {
+      hipsRef.current.position.y = lerp(hipsRef.current.position.y, 0.65 + hip.y, sp);
+      hipsRef.current.rotation.x = lerp(hipsRef.current.rotation.x, hip.rotX, sp);
+      hipsRef.current.rotation.y = lerp(hipsRef.current.rotation.y, hip.rotY, sp);
+      hipsRef.current.rotation.z = lerp(hipsRef.current.rotation.z, hip.rotZ, sp);
+    }
+    if (spineRef.current) {
+      spineRef.current.rotation.x = lerp(spineRef.current.rotation.x, spine.rotX, sp);
+      spineRef.current.rotation.y = lerp(spineRef.current.rotation.y, spine.rotY, sp);
+      spineRef.current.rotation.z = lerp(spineRef.current.rotation.z, spine.rotZ, sp);
+      spineRef.current.scale.set(
+        lerp(spineRef.current.scale.x, spine.scX * (agent.isPregnant ? 1.15 : 1), sp),
+        lerp(spineRef.current.scale.y, spine.scY, sp),
+        lerp(spineRef.current.scale.z, spine.scZ * (agent.isPregnant ? 1.2 : 1), sp)
       );
     }
-
     if (headRef.current) {
-      headRef.current.rotation.x = lerp(headRef.current.rotation.x, headTarget.rotX, ls);
-      headRef.current.rotation.y = lerp(headRef.current.rotation.y, headTarget.rotY, ls);
-      headRef.current.rotation.z = lerp(headRef.current.rotation.z, headTarget.rotZ, ls);
+      headRef.current.rotation.x = lerp(headRef.current.rotation.x, head.rotX, sp);
+      headRef.current.rotation.y = lerp(headRef.current.rotation.y, head.rotY, sp);
+      headRef.current.rotation.z = lerp(headRef.current.rotation.z, head.rotZ, sp);
     }
+    if (lEyeRef.current) lEyeRef.current.scale.y = lerp(lEyeRef.current.scale.y, eyeScaleY, dt * 12);
+    if (rEyeRef.current) rEyeRef.current.scale.y = lerp(rEyeRef.current.scale.y, eyeScaleY, dt * 12);
 
-    if (leftEyeRef.current && rightEyeRef.current) {
-      leftEyeRef.current.scale.y = lerp(leftEyeRef.current.scale.y, eyeScale, dt * 8);
-      rightEyeRef.current.scale.y = lerp(rightEyeRef.current.scale.y, eyeScale, dt * 8);
+    if (lShoulderRef.current) {
+      lShoulderRef.current.rotation.x = lerp(lShoulderRef.current.rotation.x, lSh.rotX, sp);
+      lShoulderRef.current.rotation.z = lerp(lShoulderRef.current.rotation.z, lSh.rotZ, sp);
     }
+    if (rShoulderRef.current) {
+      rShoulderRef.current.rotation.x = lerp(rShoulderRef.current.rotation.x, rSh.rotX, sp);
+      rShoulderRef.current.rotation.z = lerp(rShoulderRef.current.rotation.z, rSh.rotZ, sp);
+    }
+    if (lElbowRef.current) lElbowRef.current.rotation.x = lerp(lElbowRef.current.rotation.x, lEl.rotX, sp);
+    if (rElbowRef.current) rElbowRef.current.rotation.x = lerp(rElbowRef.current.rotation.x, rEl.rotX, sp);
 
-    if (leftArmRef.current) {
-      leftArmRef.current.rotation.x = lerp(leftArmRef.current.rotation.x, lArmTarget.rotX, ls);
-      leftArmRef.current.rotation.z = lerp(leftArmRef.current.rotation.z, lArmTarget.rotZ, ls);
-    }
-    if (rightArmRef.current) {
-      rightArmRef.current.rotation.x = lerp(rightArmRef.current.rotation.x, rArmTarget.rotX, ls);
-      rightArmRef.current.rotation.z = lerp(rightArmRef.current.rotation.z, rArmTarget.rotZ, ls);
-    }
+    if (lHipJointRef.current) lHipJointRef.current.rotation.x = lerp(lHipJointRef.current.rotation.x, lHip.rotX, sp);
+    if (rHipJointRef.current) rHipJointRef.current.rotation.x = lerp(rHipJointRef.current.rotation.x, rHip.rotX, sp);
+    if (lKneeRef.current) lKneeRef.current.rotation.x = lerp(lKneeRef.current.rotation.x, lKn.rotX, sp);
+    if (rKneeRef.current) rKneeRef.current.rotation.x = lerp(rKneeRef.current.rotation.x, rKn.rotX, sp);
 
-    if (leftLegRef.current) {
-      leftLegRef.current.rotation.x = lerp(leftLegRef.current.rotation.x, lLegTarget.rotX, ls);
-      leftLegRef.current.position.x = lerp(leftLegRef.current.position.x, lLegTarget.posX, ls);
-    }
-    if (rightLegRef.current) {
-      rightLegRef.current.rotation.x = lerp(rightLegRef.current.rotation.x, rLegTarget.rotX, ls);
-      rightLegRef.current.position.x = lerp(rightLegRef.current.position.x, rLegTarget.posX, ls);
-    }
-
-    if (tailRef.current) {
-      const tailSpeed = state === AgentState.FLEEING ? 6 : state === AgentState.MOVING ? 4 : state === AgentState.PLAYING ? 8 : state === AgentState.CELEBRATING ? 7 : 1.5;
-      const tailSwing = state === AgentState.FLEEING ? 0.6 : state === AgentState.MOVING ? 0.4 : state === AgentState.PLAYING ? 0.7 : 0.25;
-      tailRef.current.rotation.y = Math.sin(time * tailSpeed) * tailSwing;
-      tailRef.current.rotation.x = Math.sin(time * tailSpeed * 0.5) * 0.1;
-    }
-
-    if (selectionRingRef.current) {
-      selectionRingRef.current.rotation.z = time * 1.5;
+    if (selRingRef.current) selRingRef.current.rotation.z = t * 2;
+    if (shadowRef.current) {
+      const shadowScale = 1 + hip.y * 2;
+      shadowRef.current.scale.set(shadowScale, shadowScale, 1);
+      shadowRef.current.material.opacity = 0.25 - hip.y * 0.5;
     }
 
     const ps = particlesRef.current;
@@ -506,268 +585,324 @@ export const CreatureModel: React.FC<CreatureModelProps> = ({ agent, isSelected,
       ps[i].x += ps[i].vx * dt;
       ps[i].y += ps[i].vy * dt;
       ps[i].z += ps[i].vz * dt;
+      ps[i].vy -= dt * 0.5;
       if (ps[i].life <= 0) ps.splice(i, 1);
     }
 
-    const spawnRate = 0.15;
-    const canSpawn = Math.random() < spawnRate;
-
-    if (canSpawn) {
-      const pid = particleIdRef.current++;
+    if (Math.random() < 0.12) {
+      const pid = pidRef.current++;
       if (state === AgentState.CRAFTING) {
-        ps.push({
-          id: pid, x: (Math.random() - 0.5) * 0.1, y: 0.35, z: -0.15,
-          vx: (Math.random() - 0.5) * 0.5, vy: Math.random() * 0.8 + 0.3, vz: (Math.random() - 0.5) * 0.5,
-          life: 0.5, maxLife: 0.5, color: '#ff8800', size: 0.015
-        });
+        ps.push({ id: pid, x: 0.15, y: 0.8, z: -0.2, vx: (Math.random() - 0.5) * 1.5, vy: 1.0 + Math.random() * 1.5, vz: (Math.random() - 0.5) * 1.5, life: 0.5, maxLife: 0.5, color: '#ff8800', size: 0.04 });
       } else if (state === AgentState.BUILDING) {
-        ps.push({
-          id: pid, x: (Math.random() - 0.5) * 0.3, y: 0.05, z: (Math.random() - 0.5) * 0.3,
-          vx: (Math.random() - 0.5) * 0.2, vy: Math.random() * 0.3, vz: (Math.random() - 0.5) * 0.2,
-          life: 0.8, maxLife: 0.8, color: '#d2b48c', size: 0.025
-        });
+        ps.push({ id: pid, x: (Math.random() - 0.5) * 0.5, y: 0.1, z: (Math.random() - 0.5) * 0.5, vx: (Math.random() - 0.5) * 0.5, vy: 0.5 + Math.random() * 0.5, vz: (Math.random() - 0.5) * 0.5, life: 0.8, maxLife: 0.8, color: '#d2b48c', size: 0.06 });
       } else if (state === AgentState.RESEARCHING) {
-        const angle = Math.random() * Math.PI * 2;
-        const r = 0.2;
-        ps.push({
-          id: pid, x: Math.cos(angle) * r, y: 0.8 + Math.random() * 0.1, z: Math.sin(angle) * r,
-          vx: Math.cos(angle + 1) * 0.2, vy: Math.random() * 0.2, vz: Math.sin(angle + 1) * 0.2,
-          life: 0.7, maxLife: 0.7, color: '#ffff44', size: 0.012
-        });
-      } else if (state === AgentState.SOCIALIZING && Math.random() < 0.3) {
-        ps.push({
-          id: pid, x: (Math.random() - 0.5) * 0.1, y: 0.7, z: 0,
-          vx: (Math.random() - 0.5) * 0.1, vy: 0.4 + Math.random() * 0.3, vz: (Math.random() - 0.5) * 0.1,
-          life: 1.0, maxLife: 1.0, color: '#ff4488', size: 0.02
-        });
+        const a = Math.random() * Math.PI * 2;
+        ps.push({ id: pid, x: Math.cos(a) * 0.4, y: 1.6 + Math.random() * 0.2, z: Math.sin(a) * 0.4, vx: Math.cos(a + 1) * 0.4, vy: 0.2 + Math.random() * 0.3, vz: Math.sin(a + 1) * 0.4, life: 0.8, maxLife: 0.8, color: '#ffff44', size: 0.035 });
+      } else if (state === AgentState.SOCIALIZING && Math.random() < 0.4) {
+        ps.push({ id: pid, x: (Math.random() - 0.5) * 0.2, y: 1.4, z: 0, vx: (Math.random() - 0.5) * 0.2, vy: 0.8 + Math.random() * 0.5, vz: (Math.random() - 0.5) * 0.2, life: 1.2, maxLife: 1.2, color: '#ff4488', size: 0.05 });
       } else if (state === AgentState.CELEBRATING) {
-        const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
-        ps.push({
-          id: pid, x: (Math.random() - 0.5) * 0.2, y: 0.9, z: (Math.random() - 0.5) * 0.2,
-          vx: (Math.random() - 0.5) * 1.0, vy: 1.5 + Math.random() * 1.0, vz: (Math.random() - 0.5) * 1.0,
-          life: 1.2, maxLife: 1.2, color: colors[Math.floor(Math.random() * colors.length)], size: 0.018
-        });
+        const colors = ['#ff3333', '#33ff33', '#3333ff', '#ffff33', '#ff33ff', '#33ffff'];
+        ps.push({ id: pid, x: (Math.random() - 0.5) * 0.4, y: 1.8, z: (Math.random() - 0.5) * 0.4, vx: (Math.random() - 0.5) * 2.0, vy: 2.0 + Math.random() * 1.5, vz: (Math.random() - 0.5) * 2.0, life: 1.5, maxLife: 1.5, color: colors[Math.floor(Math.random() * colors.length)], size: 0.04 });
       }
     }
-
     if (ps.length > MAX_PARTICLES) ps.splice(0, ps.length - MAX_PARTICLES);
-
     particlesRef.current = ps;
   });
 
   const showChat = agent.chatBubble && agent.lastChatTime && (Date.now() - agent.lastChatTime < 8000);
   const chatText = showChat ? (agent.chatBubble!.length > 40 ? agent.chatBubble!.substring(0, 37) + '...' : agent.chatBubble!) : '';
-
-  const isSleeping = agent.state === AgentState.SLEEPING;
+  const isSleeping = state === AgentState.SLEEPING;
+  const state = agent.state;
 
   return (
     <group
-      ref={groupRef}
-      position={[agent.position.x, 0, agent.position.z]}
+      ref={rootRef}
+      position={[agent.position.x, agent.position.y, agent.position.z]}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
     >
+      <mesh ref={shadowRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+        <circleGeometry args={[0.4, 12]} />
+        <meshBasicMaterial color="#000000" transparent opacity={0.25} depthWrite={false} />
+      </mesh>
+
       {isSelected && (
-        <mesh ref={selectionRingRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
-          <ringGeometry args={[0.45, 0.52, 24]} />
-          <meshBasicMaterial color="#ffdd44" transparent opacity={0.7} side={THREE.DoubleSide} />
+        <mesh ref={selRingRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
+          <ringGeometry args={[0.55, 0.65, 24]} />
+          <meshBasicMaterial color="#ffd700" transparent opacity={0.8} side={THREE.DoubleSide} depthWrite={false} />
         </mesh>
       )}
 
-      <group ref={wholeBodyRef} scale={[lifeScale, lifeScale, lifeScale]}>
-        <group ref={bodyRef}>
-          <mesh position={[0, 0.45, 0]}>
-            <boxGeometry args={[0.28, 0.3, 0.22]} />
-            <primitive object={skinMat} attach="material" />
+      <group ref={wholeRef} scale={[lifeScale, lifeScale, lifeScale]}>
+        {/* HIPS - root of skeleton, positioned at hip height */}
+        <group ref={hipsRef} position={[0, 0.65, 0]}>
+
+          {/* PELVIS mesh */}
+          <mesh>
+            <boxGeometry args={[0.35, 0.15, 0.2]} />
+            <primitive object={cloth} attach="material" />
           </mesh>
 
-          <mesh position={[0, 0.47, -0.105]}>
-            <boxGeometry args={[0.22, 0.2, 0.025]} />
-            <primitive object={clothingMat} attach="material" />
-          </mesh>
-          <mesh position={[0, 0.47, 0.105]}>
-            <boxGeometry args={[0.22, 0.2, 0.025]} />
-            <primitive object={clothingMat} attach="material" />
-          </mesh>
-          <mesh position={[-0.135, 0.47, 0]}>
-            <boxGeometry args={[0.025, 0.2, 0.2]} />
-            <primitive object={clothingMat} attach="material" />
-          </mesh>
-          <mesh position={[0.135, 0.47, 0]}>
-            <boxGeometry args={[0.025, 0.2, 0.2]} />
-            <primitive object={clothingMat} attach="material" />
-          </mesh>
-
-          <mesh position={[0, 0.48, -0.12]}>
-            <sphereGeometry args={[0.04, 6, 4]} />
-            <primitive object={markingMat} attach="material" />
-          </mesh>
-
-          {agent.isPregnant && (
-            <mesh position={[0, 0.42, -0.12]}>
-              <sphereGeometry args={[0.08, 6, 5]} />
-              <primitive object={skinMat} attach="material" />
+          {/* LEFT LEG - pivots at hip joint */}
+          <group ref={lHipJointRef} position={[-0.1, -0.08, 0]}>
+            {/* upper leg */}
+            <mesh position={[0, -0.17, 0]}>
+              <capsuleGeometry args={[0.065, 0.2, 4, 6]} />
+              <primitive object={skin} attach="material" />
             </mesh>
-          )}
-
-          <group ref={headRef} position={[0, 0.75, 0]}>
-            <mesh>
-              <icosahedronGeometry args={[0.2, 1]} />
-              <primitive object={skinMat} attach="material" />
-            </mesh>
-
-            <mesh ref={leftEyeRef} position={[-0.08, 0.03, -0.16]}>
-              <sphereGeometry args={[0.05, 8, 6]} />
-              <primitive object={eyeWhiteMat} attach="material" />
-            </mesh>
-            <mesh position={[-0.08, 0.03, -0.19]}>
-              <sphereGeometry args={[0.03, 6, 5]} />
-              <primitive object={eyeMat} attach="material" />
-            </mesh>
-
-            <mesh ref={rightEyeRef} position={[0.08, 0.03, -0.16]}>
-              <sphereGeometry args={[0.05, 8, 6]} />
-              <primitive object={eyeWhiteMat} attach="material" />
-            </mesh>
-            <mesh position={[0.08, 0.03, -0.19]}>
-              <sphereGeometry args={[0.03, 6, 5]} />
-              <primitive object={eyeMat} attach="material" />
-            </mesh>
-
-            <mesh position={[-0.17, 0.12, 0]} rotation={[0, 0, -0.4]}>
-              <coneGeometry args={[0.05, 0.12, 4]} />
-              <primitive object={markingMat} attach="material" />
-            </mesh>
-            <mesh position={[0.17, 0.12, 0]} rotation={[0, 0, 0.4]}>
-              <coneGeometry args={[0.05, 0.12, 4]} />
-              <primitive object={markingMat} attach="material" />
-            </mesh>
-
-            <mesh position={[0, -0.06, -0.18]}>
-              <sphereGeometry args={[0.02, 4, 3]} />
-              <primitive object={skinMat} attach="material" />
-            </mesh>
+            {/* knee joint */}
+            <group ref={lKneeRef} position={[0, -0.32, 0]}>
+              {/* lower leg */}
+              <mesh position={[0, -0.15, 0]}>
+                <capsuleGeometry args={[0.055, 0.18, 4, 6]} />
+                <primitive object={skin} attach="material" />
+              </mesh>
+              {/* foot */}
+              <mesh position={[0, -0.3, -0.04]}>
+                <boxGeometry args={[0.1, 0.06, 0.16]} />
+                <primitive object={marking} attach="material" />
+              </mesh>
+            </group>
           </group>
 
-          <group ref={leftArmRef} position={[-0.2, 0.52, 0]}>
-            <mesh position={[0, -0.1, 0]}>
-              <cylinderGeometry args={[0.04, 0.035, 0.2, 5]} />
-              <primitive object={skinMat} attach="material" />
+          {/* RIGHT LEG */}
+          <group ref={rHipJointRef} position={[0.1, -0.08, 0]}>
+            <mesh position={[0, -0.17, 0]}>
+              <capsuleGeometry args={[0.065, 0.2, 4, 6]} />
+              <primitive object={skin} attach="material" />
             </mesh>
-            <mesh position={[0, -0.22, 0]}>
-              <sphereGeometry args={[0.035, 5, 4]} />
-              <primitive object={skinMat} attach="material" />
-            </mesh>
+            <group ref={rKneeRef} position={[0, -0.32, 0]}>
+              <mesh position={[0, -0.15, 0]}>
+                <capsuleGeometry args={[0.055, 0.18, 4, 6]} />
+                <primitive object={skin} attach="material" />
+              </mesh>
+              <mesh position={[0, -0.3, -0.04]}>
+                <boxGeometry args={[0.1, 0.06, 0.16]} />
+                <primitive object={marking} attach="material" />
+              </mesh>
+            </group>
           </group>
 
-          <group ref={rightArmRef} position={[0.2, 0.52, 0]}>
-            <mesh position={[0, -0.1, 0]}>
-              <cylinderGeometry args={[0.04, 0.035, 0.2, 5]} />
-              <primitive object={skinMat} attach="material" />
+          {/* SPINE / TORSO - pivots at base of spine */}
+          <group ref={spineRef} position={[0, 0.08, 0]}>
+            {/* torso */}
+            <mesh position={[0, 0.2, 0]}>
+              <capsuleGeometry args={[0.18, 0.28, 5, 8]} />
+              <primitive object={cloth} attach="material" />
             </mesh>
-            <mesh position={[0, -0.22, 0]}>
-              <sphereGeometry args={[0.035, 5, 4]} />
-              <primitive object={skinMat} attach="material" />
+            {/* chest detail */}
+            <mesh position={[0, 0.28, -0.12]}>
+              <sphereGeometry args={[0.06, 5, 4]} />
+              <primitive object={marking} attach="material" />
             </mesh>
-            {agent.equippedTool && (
-              <group position={[0, -0.22, 0]}>
-                <EquippedTool tool={agent.equippedTool} />
-              </group>
+            {/* belly for pregnant */}
+            {agent.isPregnant && (
+              <mesh position={[0, 0.12, -0.14]}>
+                <sphereGeometry args={[0.12, 6, 5]} />
+                <primitive object={skin} attach="material" />
+              </mesh>
             )}
+
+            {/* LEFT SHOULDER - pivots at shoulder joint */}
+            <group ref={lShoulderRef} position={[-0.24, 0.35, 0]}>
+              {/* upper arm */}
+              <mesh position={[0, -0.12, 0]}>
+                <capsuleGeometry args={[0.05, 0.15, 4, 6]} />
+                <primitive object={skin} attach="material" />
+              </mesh>
+              {/* elbow */}
+              <group ref={lElbowRef} position={[0, -0.25, 0]}>
+                {/* lower arm */}
+                <mesh position={[0, -0.1, 0]}>
+                  <capsuleGeometry args={[0.04, 0.12, 4, 6]} />
+                  <primitive object={skin} attach="material" />
+                </mesh>
+                {/* hand */}
+                <mesh position={[0, -0.22, 0]}>
+                  <sphereGeometry args={[0.05, 5, 4]} />
+                  <primitive object={skin} attach="material" />
+                </mesh>
+              </group>
+            </group>
+
+            {/* RIGHT SHOULDER */}
+            <group ref={rShoulderRef} position={[0.24, 0.35, 0]}>
+              <mesh position={[0, -0.12, 0]}>
+                <capsuleGeometry args={[0.05, 0.15, 4, 6]} />
+                <primitive object={skin} attach="material" />
+              </mesh>
+              <group ref={rElbowRef} position={[0, -0.25, 0]}>
+                <mesh position={[0, -0.1, 0]}>
+                  <capsuleGeometry args={[0.04, 0.12, 4, 6]} />
+                  <primitive object={skin} attach="material" />
+                </mesh>
+                <mesh position={[0, -0.22, 0]}>
+                  <sphereGeometry args={[0.05, 5, 4]} />
+                  <primitive object={skin} attach="material" />
+                </mesh>
+                {agent.equippedTool && <EquippedTool tool={agent.equippedTool} />}
+              </group>
+            </group>
+
+            {/* NECK */}
+            <mesh position={[0, 0.42, 0]}>
+              <cylinderGeometry args={[0.06, 0.07, 0.08, 6]} />
+              <primitive object={skin} attach="material" />
+            </mesh>
+
+            {/* HEAD - pivots at base of neck */}
+            <group ref={headRef} position={[0, 0.52, 0]}>
+              {/* skull - slightly oversized for charm */}
+              <mesh>
+                <sphereGeometry args={[0.2, 8, 7]} />
+                <primitive object={skin} attach="material" />
+              </mesh>
+
+              {/* ears */}
+              <mesh position={[-0.19, 0.04, 0]}>
+                <sphereGeometry args={[0.055, 5, 4]} />
+                <primitive object={skin} attach="material" />
+              </mesh>
+              <mesh position={[0.19, 0.04, 0]}>
+                <sphereGeometry args={[0.055, 5, 4]} />
+                <primitive object={skin} attach="material" />
+              </mesh>
+
+              {/* horns/antenna */}
+              <mesh position={[-0.1, 0.18, 0]} rotation={[0, 0, -0.3]}>
+                <coneGeometry args={[0.04, 0.14, 4]} />
+                <primitive object={marking} attach="material" />
+              </mesh>
+              <mesh position={[0.1, 0.18, 0]} rotation={[0, 0, 0.3]}>
+                <coneGeometry args={[0.04, 0.14, 4]} />
+                <primitive object={marking} attach="material" />
+              </mesh>
+
+              {/* LEFT EYE */}
+              <group position={[-0.08, 0.04, -0.16]}>
+                <mesh>
+                  <sphereGeometry args={[0.055, 8, 6]} />
+                  <primitive object={eyeWhite} attach="material" />
+                </mesh>
+                <mesh ref={lEyeRef} position={[0, 0, -0.03]}>
+                  <sphereGeometry args={[0.035, 6, 5]} />
+                  <primitive object={eyePupil} attach="material" />
+                </mesh>
+              </group>
+
+              {/* RIGHT EYE */}
+              <group position={[0.08, 0.04, -0.16]}>
+                <mesh>
+                  <sphereGeometry args={[0.055, 8, 6]} />
+                  <primitive object={eyeWhite} attach="material" />
+                </mesh>
+                <mesh ref={rEyeRef} position={[0, 0, -0.03]}>
+                  <sphereGeometry args={[0.035, 6, 5]} />
+                  <primitive object={eyePupil} attach="material" />
+                </mesh>
+              </group>
+
+              {/* nose */}
+              <mesh position={[0, -0.02, -0.18]}>
+                <sphereGeometry args={[0.03, 4, 3]} />
+                <primitive object={skin} attach="material" />
+              </mesh>
+
+              {/* mouth */}
+              <mesh position={[0, -0.08, -0.16]}>
+                <boxGeometry args={[0.06, 0.02, 0.02]} />
+                <primitive object={mouthMat} attach="material" />
+              </mesh>
+            </group>
           </group>
 
-          <group ref={leftLegRef} position={[-0.08, 0.28, 0]}>
-            <mesh position={[0, -0.1, 0]}>
-              <cylinderGeometry args={[0.045, 0.04, 0.2, 5]} />
-              <primitive object={skinMat} attach="material" />
+          {/* TAIL */}
+          <group position={[0, 0, 0.12]}>
+            <mesh position={[0, 0.05, 0.1]} rotation={[0.5, 0, 0]}>
+              <coneGeometry args={[0.04, 0.22, 5]} />
+              <primitive object={skin} attach="material" />
             </mesh>
-            <mesh position={[0, -0.2, -0.02]}>
-              <boxGeometry args={[0.07, 0.04, 0.1]} />
-              <primitive object={skinMat} attach="material" />
-            </mesh>
-          </group>
-
-          <group ref={rightLegRef} position={[0.08, 0.28, 0]}>
-            <mesh position={[0, -0.1, 0]}>
-              <cylinderGeometry args={[0.045, 0.04, 0.2, 5]} />
-              <primitive object={skinMat} attach="material" />
-            </mesh>
-            <mesh position={[0, -0.2, -0.02]}>
-              <boxGeometry args={[0.07, 0.04, 0.1]} />
-              <primitive object={skinMat} attach="material" />
-            </mesh>
-          </group>
-
-          <group ref={tailRef} position={[0, 0.38, 0.14]}>
-            <mesh position={[0, 0, 0.08]} rotation={[Math.PI / 2.5, 0, 0]}>
-              <coneGeometry args={[0.03, 0.18, 4]} />
-              <primitive object={skinMat} attach="material" />
-            </mesh>
-            <mesh position={[0, 0, 0.2]} rotation={[Math.PI / 2.5, 0, 0]}>
-              <sphereGeometry args={[0.025, 4, 3]} />
-              <primitive object={markingMat} attach="material" />
+            <mesh position={[0, 0.03, 0.24]}>
+              <sphereGeometry args={[0.035, 4, 3]} />
+              <primitive object={marking} attach="material" />
             </mesh>
           </group>
         </group>
 
-        <ParticleSystemImperative particlesRef={particlesRef} />
+        <ParticleSystem particlesRef={particlesRef} />
 
         {isSleeping && (
           <>
-            <Billboard position={[0.2, 0.9, 0]} follow lockX={false} lockY={false} lockZ={false}>
-              <Text fontSize={0.12} color="#aaaaff" anchorX="center" anchorY="middle">
-                Z
-              </Text>
+            <Billboard position={[0.3, 1.5, 0]} follow>
+              <Text fontSize={0.18} color="#aaaaff" anchorX="center" anchorY="middle">Z</Text>
             </Billboard>
-            <Billboard position={[0.3, 1.05, 0.05]} follow lockX={false} lockY={false} lockZ={false}>
-              <Text fontSize={0.09} color="#8888dd" anchorX="center" anchorY="middle">
-                z
-              </Text>
+            <Billboard position={[0.45, 1.7, 0.05]} follow>
+              <Text fontSize={0.13} color="#8888dd" anchorX="center" anchorY="middle">z</Text>
             </Billboard>
-            <Billboard position={[0.15, 1.15, -0.05]} follow lockX={false} lockY={false} lockZ={false}>
-              <Text fontSize={0.07} color="#6666bb" anchorX="center" anchorY="middle">
-                z
-              </Text>
+            <Billboard position={[0.25, 1.85, -0.05]} follow>
+              <Text fontSize={0.1} color="#6666bb" anchorX="center" anchorY="middle">z</Text>
             </Billboard>
           </>
         )}
       </group>
 
-      <Billboard position={[0, 1.15 * lifeScale, 0]} follow lockX={false} lockY={false} lockZ={false}>
+      {/* NAME + HEALTH BAR */}
+      <Billboard position={[0, 1.9 * lifeScale, 0]} follow>
         <Text
-          fontSize={0.09}
+          fontSize={0.13}
           color="#ffffff"
           anchorX="center"
           anchorY="bottom"
-          outlineWidth={0.008}
+          outlineWidth={0.012}
           outlineColor="#000000"
         >
           {agent.name}
         </Text>
-        <mesh position={[0, -0.03, 0]}>
-          <planeGeometry args={[0.4, 0.035]} />
-          <meshBasicMaterial color="#333" transparent opacity={0.7} />
+        <mesh position={[0, -0.04, 0]}>
+          <planeGeometry args={[0.5, 0.05]} />
+          <meshBasicMaterial color="#222" transparent opacity={0.7} />
         </mesh>
-        <mesh position={[(healthPercent - 1) * 0.19, -0.03, 0.001]}>
-          <planeGeometry args={[0.38 * healthPercent, 0.025]} />
-          <meshBasicMaterial color={healthPercent > 0.5 ? '#4ade80' : healthPercent > 0.25 ? '#facc15' : '#ef4444'} />
+        <mesh position={[(healthPct - 1) * 0.235, -0.04, 0.001]}>
+          <planeGeometry args={[0.47 * healthPct, 0.035]} />
+          <meshBasicMaterial color={healthPct > 0.5 ? '#4ade80' : healthPct > 0.25 ? '#facc15' : '#ef4444'} />
         </mesh>
       </Billboard>
 
+      {/* ACTION LABEL */}
+      {agent.currentActionLabel && (
+        <Billboard position={[0, 2.15 * lifeScale, 0]} follow>
+          <Text
+            fontSize={0.08}
+            color="#94a3b8"
+            anchorX="center"
+            anchorY="bottom"
+            outlineWidth={0.006}
+            outlineColor="#000000"
+          >
+            {agent.currentActionLabel.length > 30 ? agent.currentActionLabel.substring(0, 28) + '...' : agent.currentActionLabel}
+          </Text>
+        </Billboard>
+      )}
+
+      {/* CHAT BUBBLE */}
       {showChat && (
-        <Billboard position={[0, 1.4 * lifeScale, 0]} follow lockX={false} lockY={false} lockZ={false}>
+        <Billboard position={[0, 2.35 * lifeScale, 0]} follow>
           <mesh position={[0, 0, -0.01]}>
-            <planeGeometry args={[Math.min(chatText.length * 0.045 + 0.1, 2), 0.16]} />
-            <meshBasicMaterial color="#ffffff" transparent opacity={0.9} />
+            <planeGeometry args={[Math.min(chatText.length * 0.055 + 0.15, 2.5), 0.22]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.92} />
           </mesh>
           <Text
-            fontSize={0.07}
+            fontSize={0.09}
             color="#333333"
             anchorX="center"
             anchorY="middle"
-            maxWidth={1.8}
+            maxWidth={2.2}
           >
             {chatText}
           </Text>
+          <mesh position={[0, -0.13, 0]} rotation={[0, 0, Math.PI / 4]}>
+            <planeGeometry args={[0.06, 0.06]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.92} />
+          </mesh>
         </Billboard>
       )}
     </group>

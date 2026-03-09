@@ -1,0 +1,701 @@
+Use three.js GLTFLoader for character assets, AnimationMixer for clips, and InstancedMesh only for repeated non-animated world props. GLTFLoader also supports Draco-compressed assets through DRACOLoader, which is good for reducing model size. For character rigging and getting fast human animations onto custom characters, Mixamo can auto-rig uploaded characters and apply mapped animations to them.
+
+Prompt for Replit AI
+
+I am building a life simulator in three.js. Right now the characters look bad, too primitive, too static, and they do not perform believable actions. I want you to refactor the character system so the simulation feels like a real little AI society instead of a bunch of placeholder dolls.
+
+Your job is to improve this in a production-minded way, not with hacks. Keep the current game running, but replace the current character pipeline with a cleaner, scalable one.
+
+Main goals
+
+Replace the current ugly low-detail “toy” characters with better stylized 3D characters that still fit the world’s soft low-poly look.
+
+Give every AI a proper body structure and readable silhouette.
+
+Add animations and visible actions so agents do not look dead.
+
+Make the system scalable for many agents at once.
+
+Preserve performance in browser.
+
+Keep everything compatible with three.js, not React Three Fiber unless absolutely needed.
+
+Visual direction
+
+The world has a charming soft, low-poly, peaceful simulator vibe. The characters should match that style.
+
+I do not want:
+
+random cubes stuck together
+
+tiny stiff puppet bodies
+
+characters with no joints
+
+dead-eyed NPCs standing frozen
+
+flat placeholder mannequins
+
+stiff movement with zero anticipation or follow-through
+
+I do want:
+
+stylized low-poly humanoids
+
+proper proportions with head, torso, pelvis, upper/lower arms, upper/lower legs, hands, feet
+
+slightly oversized heads for charm and readability
+
+simple but attractive facial features
+
+variation in outfit colors, hair, accessories, body type, height, and posture
+
+a clean, game-like art style similar to cozy simulation games
+
+readable silhouettes even from a distance
+
+Character redesign requirements
+
+Create a modular stylized humanoid system.
+
+Each character should have:
+
+head
+
+hair or hat slot
+
+torso
+
+pelvis/hips
+
+upper arms
+
+lower arms
+
+hands
+
+upper legs
+
+lower legs
+
+feet
+
+optional backpack/tool slot
+
+optional accessory slot
+
+Do not just stretch cubes. Shape the mesh so it feels intentionally designed.
+
+Proportion rules
+
+Head slightly larger than realistic for personality
+
+Torso compact but not boxy
+
+Arms and legs should taper slightly
+
+Feet should be a little larger than realistic for charm and grounding
+
+Hands can be simplified but should exist
+
+Neck should exist, even if subtle
+
+Shoulder width should look natural
+
+Hips should visually support walking animation
+
+Surface style
+
+low-poly but clean
+
+smooth color blocking
+
+minimal texture dependence
+
+use flat or softly shaded materials
+
+avoid noisy textures
+
+avoid photo realism
+
+keep materials readable in daylight
+
+Strong recommendation for asset pipeline
+
+Do not keep building characters entirely from primitive geometry unless used only for quick fallback prototypes.
+
+Preferred pipeline:
+
+Create or source 1–3 good stylized low-poly base characters.
+
+Export them as .glb.
+
+Load them with GLTFLoader.
+
+Rig them with a humanoid skeleton.
+
+Attach animation clips.
+
+Clone them for multiple agents using a safe clone method for skinned meshes.
+
+Randomize outfit colors, accessories, scale, and idle variants per agent.
+
+If needed, use a proper DCC workflow:
+
+Blender for authoring characters
+
+Mixamo for quick auto-rigging and basic animation clips
+
+export as .glb for three.js
+
+If you cannot make new custom art immediately, then create a better procedural character generator inside three.js with actual limb hierarchy and joints, but structure it so it can later swap to .glb characters without rewriting the AI logic.
+
+Rigging and animation requirements
+
+Every agent must support a real animation state machine.
+
+Minimum animation states:
+
+idle
+
+lookAround
+
+think
+
+walk
+
+jog or hurry
+
+gather
+
+eat
+
+talk
+
+wave
+
+sit
+
+sleep
+
+inspect
+
+celebrate
+
+sad or low-energy idle
+
+hurt or exhausted idle
+
+interactWithObject
+
+If some animations do not exist yet, create placeholders using procedural joint animation until imported clips are ready.
+
+Animation behavior
+
+Agents must never stand completely still unless asleep or intentionally frozen.
+
+Idle should include tiny motions:
+
+breathing
+
+slight sway
+
+head turn
+
+blinking if supported
+
+weight shifting
+
+arm settling
+
+occasional looking at nearby objects or agents
+
+Walking must include:
+
+arm swing
+
+hip motion
+
+foot lift
+
+slight torso counter-rotation
+
+natural cadence variation
+
+Eating must include:
+
+bend or squat if near ground food
+
+hand-to-mouth or lean-to-object motion
+
+short chew loop
+
+satisfied return-to-idle motion
+
+Talking must include:
+
+facing target
+
+head nods
+
+subtle hand gestures
+
+occasional shift in posture
+
+Thinking or observing must include:
+
+pause
+
+head tilt
+
+eyes or head tracking if possible
+
+small body stillness with occasional motion
+
+AI-to-animation bridge
+
+The animation system should be driven by AI state, not random clip spam.
+
+Create a clean mapping layer like:
+
+needs.food.high → search food → walk → gather → eat
+
+social.intent.talk → approach target → stop → face target → talk animation
+
+energy.low → slow walk or exhausted idle
+
+task.gathering → gather animation at resource node
+
+mood.happy → lighter idle, occasional hop or cheerful gesture
+
+mood.sad → slower movement, drooped posture
+
+threat.detected → alert pose, faster movement
+
+sleeping → sleep pose and no idle chatter
+
+I want the simulation to look like characters are acting because of internal states.
+
+Architectural refactor
+
+Separate the system into these layers:
+
+1. CharacterAssetManager
+
+Responsible for:
+
+loading base character .glb files
+
+loading animation clips
+
+caching assets
+
+optional Draco support
+
+returning reusable references
+
+2. CharacterFactory
+
+Responsible for:
+
+creating a new agent visual from a base character
+
+applying random variation
+
+assigning materials and colors
+
+attaching name label anchor points
+
+setting scale and offsets
+
+3. CharacterAnimator
+
+Responsible for:
+
+creating an AnimationMixer per character
+
+managing actions
+
+crossfading between clips
+
+controlling playback speed
+
+exposing methods like playState('walk'), playState('eat'), setMood('happy')
+
+4. CharacterController
+
+Responsible for:
+
+position updates
+
+target following
+
+turning
+
+movement smoothing
+
+path steering
+
+syncing movement speed to animation speed
+
+5. CharacterBrainAdapter
+
+Responsible for:
+
+listening to AI needs, mood, job, social status
+
+converting simulation state into animation and posture requests
+
+Do not leave everything inside one giant scene update loop.
+
+Procedural fallback system
+
+If proper rigged assets are not ready yet, build a temporary articulated character system in code.
+
+That fallback system should:
+
+use Group hierarchy for bones or pseudo-bones
+
+separate head, torso, arms, legs
+
+animate rotations on joints
+
+support walk cycles
+
+support idle breathing
+
+support look-at head turns
+
+support emotion posture presets
+
+Even the fallback must look decent.
+
+Example posture presets
+
+neutral
+
+curious
+
+happy
+
+tired
+
+sad
+
+scared
+
+focused
+
+These should modify:
+
+spine lean
+
+head angle
+
+shoulder elevation
+
+arm rest angle
+
+hip tilt
+
+Movement quality
+
+The current movement probably looks robotic. Fix that.
+
+Requirements:
+
+smooth turning before walking
+
+no instant snap rotation unless explicitly needed
+
+acceleration and deceleration
+
+stop with slight settle motion
+
+optional footstep timing events
+
+different movement styles based on urgency
+
+no sliding across the ground while idle animation plays
+
+Animation speed should scale with actual movement speed so walk cycles match distance traveled.
+
+Interaction quality
+
+Characters should visibly react to world events.
+
+Examples:
+
+see mushroom → look at it first
+
+move toward it
+
+crouch or bend to collect
+
+lift object or simulate pickup
+
+return to neutral
+
+if hungry, eat soon after
+
+if another agent approaches, turn to face them
+
+if weather changes, maybe react
+
+if tired, posture softens
+
+if idle too long, self-directed micro actions begin
+
+Social believability
+
+Make AI characters feel aware of one another.
+
+Add:
+
+facing the other agent during conversation
+
+slight spacing logic so they do not overlap
+
+alternating small gestures while talking
+
+occasional mutual nods
+
+small glance away and back
+
+emotional posture differences depending on relation
+
+Visual polish
+
+Improve materials and presentation:
+
+use soft directional light plus ambient fill
+
+add better contact shadows or fake blob shadow under each agent
+
+make the characters sit convincingly on terrain
+
+improve color palette so clothing contrasts with the grass
+
+use subtle outlines only if it helps readability
+
+keep the head and torso readable at camera distance
+
+Optional:
+
+slight color ramps
+
+a rim light during sunrise/sunset
+
+face decals or simple eye meshes
+
+tool props for gatherers
+
+Performance rules
+
+The simulator may have many agents, so do not destroy performance.
+
+Do this:
+
+use proper asset reuse
+
+keep one shared base character asset and clone it
+
+share materials where possible
+
+use lower-poly LOD for far agents
+
+reduce animation update frequency for distant agents
+
+use billboards or very cheap proxies for far-away characters if necessary
+
+use InstancedMesh for repeated props like mushrooms, rocks, trees, signs, but not for unique animated skinned characters unless you deliberately build a custom GPU animation solution
+
+Libraries and helpers you may use
+
+Use the three.js ecosystem first.
+
+Preferred tools:
+
+GLTFLoader
+
+DRACOLoader
+
+AnimationMixer
+
+SkeletonUtils if needed for cloning skinned characters safely
+
+OrbitControls if useful for debug previews
+
+lil-gui for animation debugging controls
+
+Blender for editing models
+
+Mixamo for fast rigging and getting starter animation clips
+
+If there is already a better character library in the existing stack, you may use it, but do not drag in a giant framework unless it solves a real problem.
+
+Debug tools to build
+
+Add debug modes:
+
+show skeleton bones
+
+show current animation state above character
+
+show AI state above character
+
+toggle between placeholder and improved model
+
+test animation transitions manually
+
+inspect movement path
+
+inspect target point
+
+show current mood and need bars
+
+This is for development only, but build it cleanly.
+
+Concrete implementation plan
+
+Please execute in phases.
+
+Phase 1 — Audit current character system
+
+inspect the current character creation code
+
+identify where models are made
+
+identify where movement is updated
+
+identify where AI state lives
+
+identify render bottlenecks
+
+identify why current models look bad
+
+identify why no action animations exist
+
+Phase 2 — Replace visuals
+
+create a cleaner stylized character model system
+
+either import .glb assets or build improved articulated procedural characters
+
+make each character look intentional and charming
+
+Phase 3 — Add rigging and animation
+
+support imported animation clips
+
+build AnimationMixer setup
+
+implement state transitions and crossfades
+
+ensure idle and walk are always working
+
+Phase 4 — Connect AI to animation
+
+map hunger, energy, mood, social, and task state to animation requests
+
+make characters visibly do things
+
+Phase 5 — Add polish
+
+better lighting
+
+better shadows
+
+terrain grounding
+
+posture variation
+
+clothing and accessory variation
+
+better camera readability
+
+Phase 6 — Optimize
+
+asset caching
+
+LOD
+
+distance-based animation throttling
+
+reduced update cost for far agents
+
+Expected deliverables
+
+I want you to produce:
+
+a refactored character architecture
+
+improved visual character system
+
+working animations
+
+AI-driven action playback
+
+performance-aware implementation
+
+clean code comments
+
+a short summary of what changed
+
+a list of files modified
+
+notes about where to swap in higher-quality custom art later
+
+Code quality rules
+
+keep code modular
+
+do not break the existing simulation loop
+
+no giant monolithic files
+
+no magic numbers without explanation
+
+use clear naming
+
+document assumptions
+
+keep fallback support if imported assets fail
+
+fail gracefully when animations are missing
+
+Specific design note
+
+The final result should feel like:
+“small stylized autonomous beings living in a believable little world”
+
+not:
+“debug placeholders with text labels”
+
+Nice extras if possible
+
+If time allows, add:
+
+blinking
+
+random idle variants
+
+carrying items in hand
+
+tool-specific animations
+
+child/elder/body-type variation
+
+seated interactions
+
+sleeping on ground or bed
+
+path anticipation before turning
+
+emotes for needs or thoughts
+
+facial expression switching
+
+inverse kinematics for feet placement on uneven terrain
+
+Start by inspecting the current character code and then implement the best improvement path. Do not just describe what should happen. Actually refactor the system.
