@@ -275,19 +275,19 @@ function App() {
             }
           }
 
-          if (a.state === AgentState.MOVING && a.targetPosition) {
+          const moveSpeed = a.state === AgentState.FLEEING ? 0.32 :
+            a.state === AgentState.HUNTING ? 0.22 :
+            a.lifeStage === 'CHILD' ? 0.18 :
+            a.lifeStage === 'ELDER' ? 0.10 : 0.16;
+
+          if ((a.state === AgentState.MOVING || a.state === AgentState.EXPLORING) && a.targetPosition) {
             const h = agentPosHistory.current[a.id] || { x: a.position.x, z: a.position.z, ticks: 0 };
-            if (dist(h, a.position) < 0.05) {
+            if (dist(h, a.position) < 0.02) {
               h.ticks++;
-              if (h.ticks > 40) { a.state = AgentState.IDLE; a.targetPosition = null; a.currentActionLabel = 'Path blocked'; h.ticks = 0; }
+              if (h.ticks > 20) { a.state = AgentState.IDLE; a.targetPosition = null; a.currentActionLabel = 'Path blocked'; h.ticks = 0; }
             } else { h.x = a.position.x; h.z = a.position.z; h.ticks = 0; }
             agentPosHistory.current[a.id] = h;
           }
-
-          const moveSpeed = a.state === AgentState.FLEEING ? 0.12 :
-            a.state === AgentState.HUNTING ? 0.08 :
-            a.lifeStage === 'CHILD' ? 0.06 :
-            a.lifeStage === 'ELDER' ? 0.035 : 0.05;
 
           if (a.targetPosition && [AgentState.MOVING, AgentState.FLEEING, AgentState.HUNTING, AgentState.EXPLORING, AgentState.COURTING].includes(a.state)) {
             const dx = a.targetPosition.x - a.position.x;

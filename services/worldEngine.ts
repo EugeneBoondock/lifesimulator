@@ -815,11 +815,11 @@ export const fallbackBehavior = (agent: Agent, gs: GameState): Partial<Agent> =>
     }
   }
 
-  if (Math.random() < 0.03) {
-    const range = 5 + agent.personality.openness * 15;
+  if (Math.random() < 0.35) {
+    const range = 8 + agent.personality.openness * 20;
     const angle = Math.random() * Math.PI * 2;
     return {
-      state: AgentState.MOVING,
+      state: AgentState.EXPLORING,
       targetPosition: { x: agent.position.x + Math.sin(angle) * range, y: 0, z: agent.position.z + Math.cos(angle) * range },
       currentActionLabel: 'Wandering'
     };
