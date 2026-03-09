@@ -76,6 +76,22 @@ export interface ActionMemory {
 export type Era = 'PRIMITIVE' | 'STONE_AGE' | 'AGRICULTURAL' | 'BRONZE_AGE' | 'IRON_AGE';
 export type LifeStage = 'CHILD' | 'ADULT' | 'ELDER';
 export type RelationshipType = 'STRANGER' | 'ACQUAINTANCE' | 'FRIEND' | 'RIVAL' | 'PARTNER' | 'PARENT' | 'CHILD_REL' | 'SIBLING';
+export type SocialRole = 'MEMBER' | 'LEADER' | 'ELDER_ROLE' | 'HEALER' | 'TEACHER' | 'OUTCAST';
+
+export interface GeneticTraits {
+  immuneStrength: number;
+  metabolicRate: number;
+  muscleCapacity: number;
+  brainPlasticity: number;
+  reproductiveHealth: number;
+}
+
+export interface MentalEvent {
+  type: 'TRAUMA' | 'JOY' | 'LOSS' | 'DISCOVERY' | 'INSIGHT' | 'LONELINESS';
+  intensity: number;
+  description: string;
+  tick: number;
+}
 
 export interface Technology {
   id: string;
@@ -132,6 +148,12 @@ export interface Agent {
   settlementId?: string;
   causeOfDeath?: string;
   birthDay: number;
+  socialRole?: SocialRole;
+  genetics?: GeneticTraits;
+  mentalHealth?: number;
+  mentalEvents?: MentalEvent[];
+  craftingVisual?: string;
+  lastBuiltType?: string;
 }
 
 export type FloraType =

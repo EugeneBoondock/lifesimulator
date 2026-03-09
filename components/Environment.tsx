@@ -640,10 +640,35 @@ export const FaunaRenderer: React.FC<{ item: Fauna }> = ({ item }) => {
   );
 };
 
+const ScaffoldingEffect: React.FC<{ progress: number }> = ({ progress }) => {
+  const pct = progress / 100;
+  return (
+    <group>
+      {[[-1, 0, -1], [1, 0, -1], [-1, 0, 1], [1, 0, 1]].map(([x, , z], i) => (
+        <mesh key={i} position={[x * 0.8, 0.8 * pct, z * 0.8]} castShadow>
+          <cylinderGeometry args={[0.04, 0.04, 1.6 * pct, 4]} />
+          <meshStandardMaterial color="#b8860b" roughness={0.8} transparent opacity={0.7} flatShading />
+        </mesh>
+      ))}
+      <mesh position={[0, 1.5 * pct, 0]}>
+        <boxGeometry args={[2.4, 0.05, 2.4]} />
+        <meshStandardMaterial color="#8b6914" roughness={0.9} transparent opacity={0.5} flatShading />
+      </mesh>
+      <mesh position={[0, 0.05, 0]}>
+        <boxGeometry args={[2.6, 0.08, 2.6]} />
+        <meshStandardMaterial color="#6b4c11" roughness={1} transparent opacity={0.3} flatShading />
+      </mesh>
+      <pointLight color="#ffe680" intensity={0.6} distance={4} decay={2} position={[0, 2, 0]} />
+    </group>
+  );
+};
+
 export const BuildingRenderer: React.FC<{ building: Building }> = ({ building }) => {
   const rot = building.rotation || 0;
   const progress = building.buildProgress;
-  const opacity = progress < 1 ? 0.5 + progress * 0.5 : 1;
+  const pct = progress / 100;
+  const opacity = pct < 1 ? 0.25 + pct * 0.75 : 1;
+  const isUnderConstruction = progress < 100;
 
   return (
     <group position={[building.position.x, building.position.y, building.position.z]} rotation={[0, rot, 0]}>
@@ -906,7 +931,22 @@ export const BuildingRenderer: React.FC<{ building: Building }> = ({ building })
         </group>
       )}
 
+      {isUnderConstruction && <ScaffoldingEffect progress={progress} />}
+
       {building.isOnFire && <FireEffect intensity={1.2} />}
+
+      {isUnderConstruction && (
+        <group position={[0, 2.5, 0]}>
+          <mesh position={[-0.6, 0, 0]}>
+            <boxGeometry args={[1.2, 0.08, 0.08]} />
+            <meshBasicMaterial color="#333333" />
+          </mesh>
+          <mesh position={[-0.6 + pct * 1.2, 0, 0]}>
+            <boxGeometry args={[pct * 1.2, 0.08, 0.08]} />
+            <meshBasicMaterial color="#00e676" />
+          </mesh>
+        </group>
+      )}
     </group>
   );
 };

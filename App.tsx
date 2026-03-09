@@ -6,6 +6,11 @@ import UIOverlay from './components/UIOverlay';
 import { getAIDecision, applyAIDecision } from './services/deepseekService';
 import { updateNeeds, deriveFeelings, tryDiscoverTechnology, calculateEra, performGathering, performCrafting, startBuilding, performHunting, updateFauna, updateWeather, fallbackBehavior, performAgentCombat, attemptCourting, formPartnership, startPregnancy, giveBirth, updateLifeStage, shareFood, detectSettlements, rollForEvent, processActiveEvents } from './services/worldEngine';
 import { initDB, loadAllAgents, saveAllAgents } from './services/memoryStorage';
+import { applyBiologyTick, deriveGenetics } from './services/biologyEngine';
+import { assignSocialRoles, processSocialInfluence, spreadKnowledge } from './services/socialEngine';
+import { processCollectiveResources, applyGovernanceEffects, enforceSocialNorms } from './services/societyEngine';
+import { processMentalHealth, processSleepInsight, recordMentalEvent } from './services/mentalEngine';
+import { applyWeatherDamage, spreadFire, applyStructuralDecay, advanceConstruction } from './services/physicsEngine';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const dist = (a: { x: number; z: number }, b: { x: number; z: number }) =>
@@ -406,15 +411,18 @@ function App() {
             const result = performCrafting(a, recipeId, buildings);
             if (result) {
               a = result.agent;
+              const recipeName = CRAFTING_RECIPES[recipeId]?.name || recipeId;
+              a.craftingVisual = recipeName;
               if (result.log) logs.push({ id: generateId(), timestamp: nextTime, type: 'AGENT', message: result.log });
             }
             a.state = AgentState.CRAFTING;
+            const capturedId = a.id;
             setTimeout(() => {
               setGameState(g => ({
                 ...g,
-                agents: g.agents.map(ag => ag.id === a.id ? { ...ag, state: AgentState.IDLE } : ag)
+                agents: g.agents.map(ag => ag.id === capturedId ? { ...ag, state: AgentState.IDLE, craftingVisual: undefined } : ag)
               }));
-            }, 2000);
+            }, 2500);
             a.targetId = undefined;
           }
 
@@ -424,15 +432,17 @@ function App() {
             if (result) {
               a = result.agent;
               buildings.push(result.building);
+              a.lastBuiltType = result.building.type;
               if (result.log) logs.push({ id: generateId(), timestamp: nextTime, type: 'AGENT', message: result.log });
             }
             a.state = AgentState.BUILDING;
+            const capturedBuildId = a.id;
             setTimeout(() => {
               setGameState(g => ({
                 ...g,
-                agents: g.agents.map(ag => ag.id === a.id ? { ...ag, state: AgentState.IDLE } : ag)
+                agents: g.agents.map(ag => ag.id === capturedBuildId ? { ...ag, state: AgentState.IDLE } : ag)
               }));
-            }, 3000);
+            }, 3500);
             a.targetId = undefined;
             a.targetPosition = null;
           }
@@ -637,6 +647,74 @@ function App() {
         }
 
         if (logs.length > 150) logs.splice(0, logs.length - 120);
+
+        // ─── Biology Engine ────────────────────────────────────────────────
+        nextAgents = nextAgents.map(a => {
+          const bioUpdates = applyBiologyTick(a, { ...prev, agents: nextAgents, buildings, flora, fauna, water, season: nextSeason, weather: nextWeather });
+          return { ...a, ...bioUpdates };
+        });
+
+        // ─── Mental Engine ──────────────────────────────────────────────────
+        if (nextTime % 3 === 0) {
+          nextAgents = nextAgents.map(a => {
+            const mentalUpdates = processMentalHealth(a, { ...prev, agents: nextAgents, buildings, flora, fauna, water });
+            const sleepUpdates  = processSleepInsight(a);
+            return { ...a, ...mentalUpdates, ...sleepUpdates };
+          });
+        }
+
+        // ─── Social Engine ──────────────────────────────────────────────────
+        if (nextTime % 5 === 0) {
+          nextAgents = processSocialInfluence(nextAgents, { ...prev, agents: nextAgents, buildings, flora, fauna, water });
+        }
+        if (nextTime % 20 === 0) {
+          nextAgents = assignSocialRoles(nextAgents);
+        }
+        if (nextTime % 8 === 0) {
+          const kResult = spreadKnowledge(nextAgents, { ...prev, agents: nextAgents, buildings, flora, fauna, water });
+          nextAgents = kResult.agents;
+          for (const msg of kResult.logs) {
+            logs.push({ id: generateId(), timestamp: nextTime, type: 'DISCOVERY', message: `📖 ${msg}`, importance: 4 });
+          }
+        }
+
+        // ─── Society Engine ─────────────────────────────────────────────────
+        if (nextTime % 10 === 0) {
+          nextAgents = applyGovernanceEffects(nextAgents, { ...prev, agents: nextAgents, buildings, flora, fauna, water, settlements });
+          const normResult = enforceSocialNorms(nextAgents, { ...prev, agents: nextAgents, buildings, flora, fauna, water });
+          nextAgents = normResult.agents;
+        }
+        if (nextTime % 15 === 0) {
+          const collectResult = processCollectiveResources(nextAgents, buildings, { ...prev, agents: nextAgents, buildings, flora, fauna, water });
+          nextAgents = collectResult.agents;
+          buildings = collectResult.buildings;
+          for (const msg of collectResult.logs) {
+            logs.push({ id: generateId(), timestamp: nextTime, type: 'AGENT', message: msg });
+          }
+        }
+
+        // ─── Physics Engine ─────────────────────────────────────────────────
+        if (nextTime % 5 === 0) {
+          buildings = applyWeatherDamage(buildings, nextWeather);
+        }
+        const fireResult = spreadFire(buildings, { ...prev, agents: nextAgents, buildings, flora, fauna, water, weather: nextWeather });
+        buildings = fireResult.buildings;
+        for (const msg of fireResult.logs) {
+          logs.push({ id: generateId(), timestamp: nextTime, type: 'DANGER', message: msg, importance: 7 });
+        }
+        const decayResult = applyStructuralDecay(buildings, nextTime);
+        if (decayResult.destroyed.length > 0) {
+          buildings = decayResult.buildings;
+          for (const id of decayResult.destroyed) {
+            logs.push({ id: generateId(), timestamp: nextTime, type: 'SYSTEM', message: `🏚️ A structure crumbled to ruin.` });
+          }
+        } else {
+          buildings = decayResult.buildings;
+        }
+
+        // ─── Construction Progress ─────────────────────────────────────────
+        const builderIds = new Set(nextAgents.filter(a => a.state === AgentState.BUILDING).map(a => a.id));
+        buildings = advanceConstruction(buildings, builderIds, nextAgents);
 
         return {
           ...prev,

@@ -1488,6 +1488,34 @@ export const CreatureModel: React.FC<CreatureModelProps> = ({ agent, isSelected,
         </Billboard>
       )}
 
+      {agent.craftingVisual && (
+        <Billboard position={[0, labelHeight + 0.68, 0]} follow>
+          <mesh position={[0, 0, -0.01]}>
+            <planeGeometry args={[Math.min(agent.craftingVisual.length * 0.058 + 0.25, 2.0), 0.26]} />
+            <meshBasicMaterial color="#1a1a2e" transparent opacity={0.88} />
+          </mesh>
+          <mesh position={[0, -0.15, -0.01]}>
+            <planeGeometry args={[0.06, 0.06]} />
+            <meshBasicMaterial color="#1a1a2e" transparent opacity={0.88} />
+          </mesh>
+          <Text fontSize={0.09} color="#fbbf24" anchorX="center" anchorY="middle" outlineWidth={0.005} outlineColor="#000">
+            {`⚒ ${agent.craftingVisual}`}
+          </Text>
+        </Billboard>
+      )}
+
+      {agent.socialRole && agent.socialRole !== 'MEMBER' && (
+        <Billboard position={[-0.42, labelHeight - 0.05, 0]} follow>
+          <Text fontSize={0.11} anchorX="center" anchorY="middle">
+            {agent.socialRole === 'LEADER'     ? '👑' :
+             agent.socialRole === 'ELDER_ROLE' ? '🌀' :
+             agent.socialRole === 'TEACHER'    ? '📖' :
+             agent.socialRole === 'HEALER'     ? '💚' :
+             agent.socialRole === 'OUTCAST'    ? '💀' : ''}
+          </Text>
+        </Billboard>
+      )}
+
       {agent.currentActionLabel && (
         <Billboard position={[0, labelHeight + 0.22, 0]} follow>
           <Text

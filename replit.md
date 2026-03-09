@@ -29,11 +29,16 @@ A 3D AI-powered life simulation ("The Sims for AI species") where unique creatur
 
 ### Services
 - **services/deepseekService.ts** - AI decision engine with enriched prompts (family, relationships, events, life stage), 16 action types
-- **services/worldEngine.ts** - Full simulation engine: needs, combat, crafting, building, tech discovery, reproduction, aging, settlements, world events
+- **services/worldEngine.ts** - Full simulation engine: needs, combat, crafting, building, tech discovery, reproduction, aging, settlements, world events, fallback behavior (includes building/crafting/teaching/healing roles)
 - **services/memoryStorage.ts** - IndexedDB persistence for agent memories
+- **services/biologyEngine.ts** - Genetics system (derive/inherit traits), immune response, metabolic rate effects, aging physiology, disease spread based on immune strength
+- **services/socialEngine.ts** - Social role assignment (Leader👑, Elder🌀, Teacher📖, Healer💚, Outcast💀), knowledge spreading between Teacher/Elder and students, emotional contagion, leader/healer aura buffs
+- **services/societyEngine.ts** - Governance type detection (TRIBAL/CHIEFTAIN/COUNCIL), collective resource management (granary/storage pit deposit+withdrawal), social norm enforcement for outcasts
+- **services/mentalEngine.ts** - Mental health tracking (0-100 score), emotional event recording (TRAUMA/JOY/LOSS/DISCOVERY/INSIGHT/LONELINESS), sleep memory consolidation and skill improvement, dream insights
+- **services/physicsEngine.ts** - Weather damage to buildings (STORM damages most, stone resists), fire spreading between flammable structures, structural decay and collapse, construction progress advancement
 
 ### Core Data
-- **types.ts** - Full type system (Agent with lifecycle fields, Settlement, ActiveEvent, CameraMode, PopulationSnapshot, LifeStage, RelationshipType)
+- **types.ts** - Full type system: Agent (with genetics, socialRole, mentalHealth, mentalEvents, craftingVisual, lastBuiltType), GeneticTraits, MentalEvent, SocialRole, Settlement, ActiveEvent, CameraMode, PopulationSnapshot, LifeStage, RelationshipType
 - **constants.ts** - Tech tree (15 techs), crafting recipes, building recipes, world generation, name generators, population constants
 
 ## Game Systems

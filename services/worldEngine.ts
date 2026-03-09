@@ -1,4 +1,4 @@
-import { Agent, AgentState, GameState, Flora, Fauna, Building, Season, Weather, Discovery, WorldEvent, Era, Settlement, ActiveEvent, Vector3, WaterPatch } from '../types';
+import { Agent, AgentState, GameState, Flora, Fauna, Building, Season, Weather, Discovery, WorldEvent, Era, Settlement, ActiveEvent, Vector3, WaterPatch, SocialRole } from '../types';
 import { TECHNOLOGIES, CRAFTING_RECIPES, BUILDING_RECIPES, SEASON_PROPERTIES, getTerrainHeight, ERA_ORDER, WORLD_SIZE, MAX_INVENTORY_SIZE, generateSettlementName, generateBabyName, MAX_POPULATION, CHILD_AGE_DAYS, ELDER_AGE_DAYS, MAX_AGE_DAYS, PREGNANCY_DURATION } from '../constants';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -266,7 +266,7 @@ export const startBuilding = (agent: Agent, buildType: string): { agent: Agent; 
     radius: recipe.radius,
     health: recipe.health,
     maxHealth: recipe.health,
-    buildProgress: 100,
+    buildProgress: 0,
     rotation: Math.random() * Math.PI * 2,
   };
 
@@ -879,6 +879,69 @@ export const fallbackBehavior = (agent: Agent, gs: GameState): Partial<Agent> =>
       };
     }
   });
+
+  const canBuildTypes = Object.values(BUILDING_RECIPES).filter(recipe => {
+    if (recipe.requiredTech && !agent.knownTechnologies.includes(recipe.requiredTech)) return false;
+    return Object.entries(recipe.ingredients).every(([mat, qty]) => (agent.inventory[mat] || 0) >= qty);
+  });
+  if (canBuildTypes.length > 0 && agent.lifeStage !== 'CHILD') {
+    const recipe = canBuildTypes[Math.floor(Math.random() * canBuildTypes.length)];
+    behaviors.push({
+      weight: 0.8 + p.conscientiousness * 3.5,
+      fn: () => ({
+        state: AgentState.BUILDING,
+        targetId: `BUILD:${recipe.type}`,
+        currentActionLabel: `Building ${recipe.name}`,
+      })
+    });
+  }
+
+  const canCraftRecipes = Object.values(CRAFTING_RECIPES).filter(recipe => {
+    if (recipe.requiredTech && !agent.knownTechnologies.includes(recipe.requiredTech)) return false;
+    if (recipe.requiredBuilding && !gs.buildings.some(b => b.type === recipe.requiredBuilding && b.buildProgress >= 100)) return false;
+    return Object.entries(recipe.ingredients).every(([mat, qty]) => (agent.inventory[mat] || 0) >= qty);
+  });
+  if (canCraftRecipes.length > 0 && agent.lifeStage !== 'CHILD') {
+    const recipe = canCraftRecipes[Math.floor(Math.random() * canCraftRecipes.length)];
+    behaviors.push({
+      weight: 0.7 + p.conscientiousness * 2.5,
+      fn: () => ({
+        state: AgentState.CRAFTING,
+        targetId: `CRAFT:${recipe.id}`,
+        currentActionLabel: `Crafting ${recipe.name}`,
+      })
+    });
+  }
+
+  if (agent.socialRole === 'TEACHER' || agent.socialRole === 'ELDER_ROLE') {
+    const student = gs.agents.find(a => a.id !== agent.id && dist(a.position, agent.position) < 12 && a.lifeStage !== 'CHILD');
+    if (student) {
+      behaviors.push({
+        weight: 0.6 + p.conscientiousness * 2 + p.agreeableness * 1.5,
+        fn: () => ({
+          state: AgentState.TEACHING,
+          targetId: student.id,
+          targetPosition: student.position,
+          currentActionLabel: `Teaching ${student.name}`,
+        })
+      });
+    }
+  }
+
+  if (agent.socialRole === 'HEALER' && agent.sickness === 'NONE') {
+    const sick = gs.agents.find(a => a.sickness !== 'NONE' && dist(a.position, agent.position) < 18);
+    if (sick) {
+      behaviors.push({
+        weight: 1.0 + p.agreeableness * 2.5,
+        fn: () => ({
+          state: AgentState.MOVING,
+          targetPosition: sick.position,
+          targetId: sick.id,
+          currentActionLabel: `Healing ${sick.name}`,
+        })
+      });
+    }
+  }
 
   behaviors.push({
     weight: 0.2 + p.neuroticism * 0.8,
