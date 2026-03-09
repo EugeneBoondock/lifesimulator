@@ -65,6 +65,7 @@ function App() {
   const [memoryLoaded, setMemoryLoaded] = useState(false);
   const agentPosHistory = useRef<Record<string, { x: number; z: number; ticks: number }>>({});
   const courtingTimers = useRef<Record<string, number>>({});
+  const agentDecisionTimer = useRef<Record<string, number>>({});
 
   useEffect(() => { stateRef.current = gameState; }, [gameState]);
 
@@ -275,10 +276,14 @@ function App() {
             }
           }
 
-          const moveSpeed = a.state === AgentState.FLEEING ? 0.32 :
-            a.state === AgentState.HUNTING ? 0.22 :
-            a.lifeStage === 'CHILD' ? 0.18 :
-            a.lifeStage === 'ELDER' ? 0.10 : 0.16;
+          const baseSpeed = 0.14 + a.personality.openness * 0.08 + a.personality.extraversion * 0.06;
+          const energyFactor = 0.6 + (a.needs.energy / 100) * 0.7;
+          const adrenalineFactor = 1 + a.neuro.adrenaline * 0.006;
+          const adultSpeed = baseSpeed * energyFactor * adrenalineFactor;
+          const moveSpeed = a.state === AgentState.FLEEING ? adultSpeed * 2.2 :
+            a.state === AgentState.HUNTING ? adultSpeed * 1.5 :
+            a.lifeStage === 'CHILD' ? 0.11 + Math.random() * 0.04 :
+            a.lifeStage === 'ELDER' ? adultSpeed * 0.55 : adultSpeed;
 
           if ((a.state === AgentState.MOVING || a.state === AgentState.EXPLORING) && a.targetPosition) {
             const h = agentPosHistory.current[a.id] || { x: a.position.x, z: a.position.z, ticks: 0 };
@@ -547,8 +552,15 @@ function App() {
           }
 
           if (a.state === AgentState.IDLE) {
-            const fb = fallbackBehavior(a, { ...prev, flora, buildings, fauna, water, season: nextSeason, weather: nextWeather, agents: eventAgents });
-            a = { ...a, ...fb };
+            const timer = agentDecisionTimer.current[a.id] ?? Math.floor(Math.random() * 4);
+            if (timer <= 0) {
+              const fb = fallbackBehavior(a, { ...prev, flora, buildings, fauna, water, season: nextSeason, weather: nextWeather, agents: eventAgents });
+              a = { ...a, ...fb };
+              const pace = 1 + (1 - a.personality.extraversion) * 2 + (a.personality.neuroticism) * 1.5;
+              agentDecisionTimer.current[a.id] = Math.round(pace + Math.random() * pace);
+            } else {
+              agentDecisionTimer.current[a.id] = timer - 1;
+            }
           }
 
           if ((a.state === AgentState.IDLE || a.state === AgentState.EXPLORING) && nextTime % 5 === 0) {

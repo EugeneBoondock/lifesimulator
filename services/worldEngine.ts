@@ -766,31 +766,33 @@ export const updateWeather = (current: Weather, season: Season): Weather => {
 
 export const fallbackBehavior = (agent: Agent, gs: GameState): Partial<Agent> => {
   const isNight = gs.dayTime < 6 || gs.dayTime > 19;
+  const p = agent.personality;
 
   if (agent.needs.safety < 30) {
     const threat = gs.fauna.find(f => f.isAggressive && dist(f.position, agent.position) < 10);
     if (threat) {
       return {
         state: AgentState.FLEEING,
-        targetPosition: { x: agent.position.x + (agent.position.x - threat.position.x) * 2, y: 0, z: agent.position.z + (agent.position.z - threat.position.z) * 2 },
-        currentActionLabel: 'Fleeing from danger!'
+        targetPosition: { x: agent.position.x + (agent.position.x - threat.position.x) * 3, y: 0, z: agent.position.z + (agent.position.z - threat.position.z) * 3 },
+        currentActionLabel: 'Fleeing!'
       };
     }
   }
 
-  if (agent.needs.hunger < 30) {
+  if (agent.needs.hunger < 25) {
     const food = gs.flora.filter(f => f.isEdible && !f.isPoisonous && (f.resourcesLeft || 0) > 0)
       .sort((a, b) => dist(a.position, agent.position) - dist(b.position, agent.position))[0];
-    if (food) return { state: AgentState.MOVING, targetPosition: food.position, targetId: food.id, currentActionLabel: 'Searching for food' };
+    if (food) return { state: AgentState.MOVING, targetPosition: food.position, targetId: food.id, currentActionLabel: 'Finding food' };
   }
 
-  if (agent.needs.thirst < 30) {
+  if (agent.needs.thirst < 25) {
     const water = gs.water.sort((a, b) => dist(a.position, agent.position) - dist(b.position, agent.position))[0];
-    if (water) return { state: AgentState.MOVING, targetPosition: water.position, targetId: 'DRINK', currentActionLabel: 'Seeking water' };
+    if (water) return { state: AgentState.MOVING, targetPosition: water.position, targetId: 'DRINK', currentActionLabel: 'Finding water' };
   }
 
-  if (agent.needs.energy < 25 || (isNight && agent.needs.energy < 60)) {
-    return { state: AgentState.SLEEPING, currentActionLabel: 'Resting' };
+  const sleepThreshold = isNight ? 55 : 20;
+  if (agent.needs.energy < sleepThreshold) {
+    return { state: AgentState.SLEEPING, currentActionLabel: isNight ? 'Sleeping' : 'Resting' };
   }
 
   if (agent.needs.temperature < 30) {
@@ -798,31 +800,96 @@ export const fallbackBehavior = (agent: Agent, gs: GameState): Partial<Agent> =>
     if (fire) return { state: AgentState.MOVING, targetPosition: fire.position, currentActionLabel: 'Seeking warmth' };
   }
 
-  if (agent.lifeStage === 'CHILD' && Math.random() < 0.05) {
-    const nearbyAgent = gs.agents.find(a => a.id !== agent.id && dist(a.position, agent.position) < 8 && a.lifeStage === 'CHILD');
-    if (nearbyAgent) {
-      return { state: AgentState.PLAYING, targetId: nearbyAgent.id, currentActionLabel: `Playing with ${nearbyAgent.name}` };
+  if (agent.lifeStage === 'CHILD') {
+    const playmate = gs.agents.find(a => a.id !== agent.id && dist(a.position, agent.position) < 12 && a.lifeStage === 'CHILD');
+    if (playmate && Math.random() < 0.4 * p.extraversion) {
+      return { state: AgentState.PLAYING, targetId: playmate.id, currentActionLabel: `Playing with ${playmate.name}` };
     }
+    const angle = Math.random() * Math.PI * 2;
+    const range = 5 + Math.random() * 8;
+    return { state: AgentState.EXPLORING, targetPosition: { x: agent.position.x + Math.sin(angle) * range, y: 0, z: agent.position.z + Math.cos(angle) * range }, currentActionLabel: 'Playing' };
   }
 
-  if (agent.lifeStage === 'ADULT' && !agent.partnerId && agent.needs.social > 50 && Math.random() < 0.02) {
+  if (!agent.partnerId && agent.lifeStage === 'ADULT' && agent.needs.social > 50 && Math.random() < 0.15 * p.extraversion) {
     const prospect = gs.agents.find(a =>
       a.id !== agent.id && a.sex !== agent.sex && a.lifeStage === 'ADULT' && !a.partnerId &&
-      (agent.relationships[a.id] || 0) >= 40 && dist(a.position, agent.position) < 15
+      (agent.relationships[a.id] || 0) >= 40 && dist(a.position, agent.position) < 18
     );
     if (prospect) {
       return { state: AgentState.MOVING, targetPosition: prospect.position, targetId: `COURT:${prospect.id}`, currentActionLabel: `Approaching ${prospect.name}` };
     }
   }
 
-  if (Math.random() < 0.35) {
-    const range = 8 + agent.personality.openness * 20;
-    const angle = Math.random() * Math.PI * 2;
-    return {
-      state: AgentState.EXPLORING,
-      targetPosition: { x: agent.position.x + Math.sin(angle) * range, y: 0, z: agent.position.z + Math.cos(angle) * range },
-      currentActionLabel: 'Wandering'
-    };
+  type BehaviorChoice = { weight: number; fn: () => Partial<Agent> };
+  const behaviors: BehaviorChoice[] = [];
+
+  const wanderRange = 6 + p.openness * 22 + (p.neuroticism < 0.5 ? 6 : 0);
+  behaviors.push({
+    weight: 1.5 + p.openness * 3 + p.extraversion * 0.5,
+    fn: () => {
+      const angle = Math.random() * Math.PI * 2;
+      const r = wanderRange * (0.5 + Math.random() * 0.8);
+      return {
+        state: AgentState.EXPLORING,
+        targetPosition: { x: agent.position.x + Math.sin(angle) * r, y: 0, z: agent.position.z + Math.cos(angle) * r },
+        currentActionLabel: p.openness > 0.6 ? 'Exploring' : 'Wandering'
+      };
+    }
+  });
+
+  const socialTarget = gs.agents.find(a =>
+    a.id !== agent.id && dist(a.position, agent.position) < 20 &&
+    a.lifeStage !== 'CHILD' && (agent.relationships[a.id] || 0) > -20
+  );
+  if (socialTarget) {
+    behaviors.push({
+      weight: 0.5 + p.extraversion * 3 + p.agreeableness * 1,
+      fn: () => ({
+        state: AgentState.MOVING,
+        targetPosition: socialTarget.position,
+        targetId: socialTarget.id,
+        currentActionLabel: `Going to see ${socialTarget.name}`
+      })
+    });
+  }
+
+  const gatherTarget = gs.flora.filter(f => (f.resourceYield || f.isEdible) && (f.resourcesLeft || 0) > 0)
+    .sort((a, b) => dist(a.position, agent.position) - dist(b.position, agent.position))[0];
+  if (gatherTarget && dist(gatherTarget.position, agent.position) < 25) {
+    behaviors.push({
+      weight: 0.5 + p.conscientiousness * 2.5,
+      fn: () => ({
+        state: AgentState.MOVING,
+        targetPosition: gatherTarget.position,
+        targetId: gatherTarget.id,
+        currentActionLabel: 'Gathering resources'
+      })
+    });
+  }
+
+  behaviors.push({
+    weight: 0.3 + p.neuroticism * 1.5 + (1 - p.extraversion) * 0.8,
+    fn: () => {
+      const angle = Math.random() * Math.PI * 2;
+      const r = 2 + Math.random() * 4;
+      return {
+        state: AgentState.EXPLORING,
+        targetPosition: { x: agent.position.x + Math.sin(angle) * r, y: 0, z: agent.position.z + Math.cos(angle) * r },
+        currentActionLabel: 'Looking around'
+      };
+    }
+  });
+
+  behaviors.push({
+    weight: 0.2 + p.neuroticism * 0.8,
+    fn: () => ({ state: AgentState.IDLE, currentActionLabel: 'Thinking' })
+  });
+
+  const totalWeight = behaviors.reduce((s, b) => s + b.weight, 0);
+  let r = Math.random() * totalWeight;
+  for (const b of behaviors) {
+    r -= b.weight;
+    if (r <= 0) return b.fn();
   }
 
   return {};

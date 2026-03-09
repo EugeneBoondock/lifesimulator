@@ -303,6 +303,8 @@ export const CreatureModel: React.FC<CreatureModelProps> = ({ agent, isSelected,
   const settleRef = useRef(0);
   const emotionCacheRef = useRef<EmotionState>({ postureHunch: 0, energyLevel: 1, urgency: 0, happiness: 0.5, fear: 0, socialOpenness: 0.5 });
   const emotionUpdateTimerRef = useRef(0);
+  const visualPosRef = useRef(new THREE.Vector3(agent.position.x, agent.position.y, agent.position.z));
+  const initializedRef = useRef(false);
 
   const variation = useMemo(() => getCharacterVariation(agent), [agent.id]);
   const isChild = agent.lifeStage === 'CHILD';
@@ -366,12 +368,25 @@ export const CreatureModel: React.FC<CreatureModelProps> = ({ agent, isSelected,
     }
     const emo = emotionCacheRef.current;
 
-    _targetPos.set(agent.position.x, agent.position.y, agent.position.z);
-    rootRef.current.position.lerp(_targetPos, dt * 8);
+    const isMoving = state === AgentState.MOVING || state === AgentState.EXPLORING ||
+      state === AgentState.FLEEING || state === AgentState.HUNTING || state === AgentState.COURTING;
+    const agentLerpRate = state === AgentState.FLEEING ? 14 :
+      isMoving ? 7 + agent.personality.extraversion * 4 :
+      4 + agent.personality.conscientiousness * 2;
 
-    const speed = Math.sqrt(agent.velocity.x ** 2 + agent.velocity.z ** 2);
+    visualPosRef.current.set(agent.position.x, agent.position.y, agent.position.z);
+
+    if (!initializedRef.current) {
+      rootRef.current.position.copy(visualPosRef.current);
+      initializedRef.current = true;
+    } else {
+      rootRef.current.position.lerp(visualPosRef.current, Math.min(1, dt * agentLerpRate));
+    }
+
+    const movingDelta = rootRef.current.position.distanceTo(visualPosRef.current);
+    const speed = movingDelta / Math.max(dt, 0.001);
     prevVelocityRef.current = speed;
-    const rotSpeed = state === AgentState.FLEEING ? 12 : state === AgentState.MOVING ? 9 : 6;
+    const rotSpeed = state === AgentState.FLEEING ? 12 : state === AgentState.MOVING ? 9 + agent.personality.extraversion * 3 : 5;
     _targetQuat.setFromAxisAngle(_yAxis, agent.rotation);
     _currentQuat.copy(rootRef.current.quaternion);
     _currentQuat.slerp(_targetQuat, dt * rotSpeed);
@@ -520,10 +535,11 @@ export const CreatureModel: React.FC<CreatureModelProps> = ({ agent, isSelected,
       case AgentState.MOVING:
       case AgentState.EXPLORING: {
         const isExploring = state === AgentState.EXPLORING;
-        const urgencyFactor = isExploring ? 0.6 : 1.0 + urgencyMod * 0.6;
-        const walkSpeed = isExploring ? 5.5 : (7 + urgencyMod * 3) * urgencyFactor;
-        const legSwing = (isExploring ? 0.45 : 0.58) + urgencyMod * 0.15;
-        const armSwing = (isExploring ? 0.3 : 0.4) + urgencyMod * 0.1;
+        const personalitySpeedMod = 0.75 + agent.personality.openness * 0.25 + agent.personality.extraversion * 0.2 + energyMod * 0.3;
+        const urgencyFactor = isExploring ? 0.55 : 1.0 + urgencyMod * 0.6;
+        const walkSpeed = isExploring ? 4.5 * personalitySpeedMod : (6.5 + urgencyMod * 3) * urgencyFactor * personalitySpeedMod;
+        const legSwing = (isExploring ? 0.38 + agent.personality.openness * 0.1 : 0.52 + agent.personality.extraversion * 0.08) + urgencyMod * 0.15;
+        const armSwing = (isExploring ? 0.25 : 0.36) + urgencyMod * 0.1 + agent.personality.extraversion * 0.06;
         const bobAmp = (0.05 + urgencyMod * 0.04) * variation.walkBobScale;
         const hipSway = 0.04 + urgencyMod * 0.02;
 
@@ -1112,7 +1128,6 @@ export const CreatureModel: React.FC<CreatureModelProps> = ({ agent, isSelected,
   return (
     <group
       ref={rootRef}
-      position={[agent.position.x, agent.position.y, agent.position.z]}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
     >
       <mesh ref={shadowRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]}>
